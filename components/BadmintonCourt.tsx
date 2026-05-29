@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, Image, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, Image, Dimensions, Alert } from 'react-native';
 import { Appbar, Text as PaperText } from 'react-native-paper';
 import { PlayerMarker } from './PlayerMarker';
 import { IconButton } from './IconButton';
@@ -15,7 +15,7 @@ export default function BadmintonCourt() {
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
   
-  const BUTTON_CONTAINER_HEIGHT = 75;
+  const BUTTON_CONTAINER_HEIGHT = 80;
   const BANNER_HEIGHT = 50;
   const availableHeight = screenHeight - 2.2*BUTTON_CONTAINER_HEIGHT - BANNER_HEIGHT;
   
@@ -24,7 +24,9 @@ export default function BadmintonCourt() {
   const courtHeight = availableHeight; // Container height matches available height
 
   const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const [isStepsPanelVisible, setIsStepsPanelVisible] = useState(false);
   const { customizations, updateMarkerCustomization } = useMarkerCustomization();
+  const { pendingEncodedPayload, clearPendingImport } = useDrillImport();
 
   const {
     isDoubles,
@@ -44,7 +46,29 @@ export default function BadmintonCourt() {
     showShuttleTrail,
     togglePlayerTrails,
     toggleShuttleTrail,
+    drillSteps,
+    currentStepIndex,
+    goToStep,
+    importDrill,
   } = useCourtPositions({ width: courtWidth, height: courtHeight });
+
+
+  useEffect(() => {
+    if (!pendingEncodedPayload) return;
+    try {
+      const { steps, isDoubles: importedDoubles, title } = decodeDrillFromEncoded(
+        pendingEncodedPayload,
+        { width: courtWidth, height: courtHeight }
+      );
+      importDrill(steps, importedDoubles);
+      const label = title ? `"${title}"` : 'Drill';
+      Alert.alert('Drill loaded', `${label} — ${steps.length} step${steps.length === 1 ? '' : 's'} imported.`);
+    } catch {
+      Alert.alert('Invalid link', 'This drill link could not be loaded.');
+    } finally {
+      clearPendingImport();
+    }
+  }, [pendingEncodedPayload, courtWidth, courtHeight, importDrill, clearPendingImport]);
 
   return (
     <View style={styles.container}>
@@ -204,11 +228,33 @@ export default function BadmintonCourt() {
             />
           </View>
         </View>
-              </View>
+
+        <View style={styles.divider} />
+
+        <View style={styles.buttonGroupContainer}>
+          <PaperText variant="labelSmall" style={styles.buttonGroupLabel}>Steps</PaperText>
+          <View style={styles.buttonGroup}>
+            <IconButton
+              icon="format-list-numbered"
+              onPress={() => setIsStepsPanelVisible(true)}
+            />
+          </View>
+        </View>
+      </View>
 
       <SettingsPanel
         isVisible={isMenuVisible}
         onClose={() => setIsMenuVisible(false)}
+      />
+
+      <StepsPanel
+        isVisible={isStepsPanelVisible}
+        onClose={() => setIsStepsPanelVisible(false)}
+        steps={drillSteps}
+        currentStepIndex={currentStepIndex}
+        isDoubles={isDoubles}
+        courtDimensions={{ width: courtWidth, height: courtHeight }}
+        onSelectStep={goToStep}
       />
     </View>
   );
@@ -236,9 +282,9 @@ const styles = StyleSheet.create({
   buttonContainer: {
     position: 'absolute',
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 12,
     marginHorizontal: 10,
@@ -271,7 +317,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   buttonGroupLabel: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#666',
     textAlign: 'center',
     marginBottom: 4,

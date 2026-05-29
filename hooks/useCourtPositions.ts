@@ -1,7 +1,7 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useMemo } from 'react';
 import { TeamPositions, CourtDimensions, PlayerPosition } from '../types/game';
+import { DrillStep } from '../types/steps';
 import { getInitialPositions, getInitialShuttle } from '../utils/courtPositions';
-import { createLastStationaryPositions, findChangedPositions } from '../utils/positionTracking';
 
 interface GhostPosition {
   team1: PlayerPosition[];
@@ -15,6 +15,26 @@ interface PositionState {
   ghostPositions: GhostPosition;
 }
 
+function cloneTeam(team: PlayerPosition[]): PlayerPosition[] {
+  return team.map((p) => ({ x: p.x, y: p.y }));
+}
+
+function drillStepToPositionState(step: DrillStep, previous?: DrillStep): PositionState {
+  const ghostSource = previous ?? step;
+  return {
+    players: {
+      team1: cloneTeam(step.players.team1),
+      team2: cloneTeam(step.players.team2),
+    },
+    shuttle: { ...step.shuttle },
+    ghostPositions: {
+      team1: cloneTeam(ghostSource.players.team1),
+      team2: cloneTeam(ghostSource.players.team2),
+      shuttle: { ...ghostSource.shuttle },
+    },
+  };
+}
+
 export function useCourtPositions(courtDimensions: CourtDimensions) {
   const [isDoubles, setIsDoubles] = useState(true);
   const [showPlayerTrails, setShowPlayerTrails] = useState(true);
@@ -22,8 +42,7 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [positionHistory, setPositionHistory] = useState<PositionState[]>([]);
   const [tempPosition, setTempPosition] = useState<PositionState | null>(null);
-  const [positions, setPositions] = useState<PositionState | null>(null);
-  // Initialize state with ghost markers at the same positions as players and shuttle
+
   useEffect(() => {
     const initialPlayers = getInitialPositions(isDoubles, courtDimensions);
     const initialShuttle = getInitialShuttle(courtDimensions);
@@ -48,8 +67,6 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     isStart: boolean = false
   ) => {
     if (isStart) {
-      // Create ghost positions based on current positions, but only update
-      // the specific marker that's starting to move
       const ghostPositions = {
         team1: [...currentState.ghostPositions.team1],
         team2: [...currentState.ghostPositions.team2],
@@ -57,10 +74,8 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
       };
 
       if (team && typeof index === 'number') {
-        // Only update the ghost position for the specific player being moved
         ghostPositions[team][index] = currentState.players[team][index];
       } else if (isShuttle) {
-        // Only update shuttle ghost position if shuttle is being moved
         ghostPositions.shuttle = currentState.shuttle;
       }
 
@@ -68,13 +83,7 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
         ...newState,
         ghostPositions,
       });
-
-      setPositions({
-        ...newState,
-        ghostPositions,
-      });
     } else {
-      // During drag, maintain existing ghost positions
       setTempPosition(prevTemp => ({
         ...newState,
         ghostPositions: prevTemp?.ghostPositions || currentState.ghostPositions,
@@ -91,14 +100,14 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     const currentState = positionHistory[currentIndex];
     const newPlayers = {
       ...currentState.players,
-      [team]: currentState.players[team].map((pos, i) => 
+      [team]: currentState.players[team].map((pos, i) =>
         i === index ? newPosition : pos
       ),
     };
-    
-    updatePosition({ 
-      players: newPlayers, 
-      shuttle: currentState.shuttle 
+
+    updatePosition({
+      players: newPlayers,
+      shuttle: currentState.shuttle,
     }, currentState, team, index, false, isStart);
   }, [currentIndex, positionHistory, updatePosition]);
 
@@ -107,17 +116,15 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     isStart: boolean = false
   ) => {
     const currentState = positionHistory[currentIndex];
-    updatePosition({ 
-      players: currentState.players, 
-      shuttle: newPosition 
+    updatePosition({
+      players: currentState.players,
+      shuttle: newPosition,
     }, currentState, undefined, undefined, true, isStart);
   }, [currentIndex, positionHistory, updatePosition]);
 
   const handlePositionChangeComplete = useCallback(() => {
     if (!tempPosition) return;
 
-    // When drag completes, update the position history with the new positions
-    // and their corresponding ghost positions
     setPositionHistory(prev => {
       const newHistory = prev.slice(0, currentIndex + 1);
       return [...newHistory, {
@@ -129,7 +136,6 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setTempPosition(null);
   }, [currentIndex, tempPosition]);
 
-  // Reset ghost markers when resetting positions
   const resetPositions = useCallback(() => {
     const initialPlayers = getInitialPositions(isDoubles, courtDimensions);
     const initialShuttle = getInitialShuttle(courtDimensions);
@@ -179,6 +185,38 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setShowShuttleTrail(prev => !prev);
   }, []);
 
+  const drillSteps = useMemo<DrillStep[]>(
+    () =>
+      positionHistory.map((state) => ({
+        players: {
+          team1: cloneTeam(state.players.team1),
+          team2: cloneTeam(state.players.team2),
+        },
+        shuttle: { ...state.shuttle },
+      })),
+    [positionHistory]
+  );
+
+  const goToStep = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= positionHistory.length) return;
+      setCurrentIndex(index);
+      setTempPosition(null);
+    },
+    [positionHistory.length]
+  );
+
+  const importDrill = useCallback((steps: DrillStep[], isDoublesMode: boolean) => {
+    if (steps.length === 0) return;
+    setIsDoubles(isDoublesMode);
+    const history = steps.map((step, index) =>
+      drillStepToPositionState(step, index > 0 ? steps[index - 1] : step)
+    );
+    setPositionHistory(history);
+    setCurrentIndex(history.length - 1);
+    setTempPosition(null);
+  }, []);
+
   return {
     isDoubles,
     playerPositions: tempPosition?.players || positionHistory[currentIndex]?.players || getInitialPositions(isDoubles, courtDimensions),
@@ -192,11 +230,6 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     redo,
     canUndo: currentIndex > 0,
     canRedo: currentIndex < positionHistory.length - 1,
-    lastStationaryPlayers: positionHistory[currentIndex]?.lastStationaryPositions?.team1 && {
-      team1: positionHistory[currentIndex].lastStationaryPositions.team1,
-      team2: positionHistory[currentIndex].lastStationaryPositions.team2,
-    },
-    lastStationaryShuttle: positionHistory[currentIndex]?.lastStationaryPositions?.shuttle,
     ghostPositions: tempPosition?.ghostPositions || positionHistory[currentIndex]?.ghostPositions,
     showPlayerTrails,
     showShuttleTrail,
@@ -208,4 +241,4 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     goToStep,
     importDrill,
   };
-} 
+}

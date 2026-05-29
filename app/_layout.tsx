@@ -8,32 +8,33 @@ import { MarkerCustomizationProvider } from '../context/MarkerCustomizationConte
 import { DrillImportProvider } from '../context/DrillImportContext';
 import { useDrillDeepLinking } from '../hooks/useDrillDeepLinking';
 
+SplashScreen.preventAutoHideAsync();
+
 function DrillDeepLinkListener() {
   useDrillDeepLinking();
   return null;
 }
 
-// Keep splash screen visible while we fetch resources
-SplashScreen.preventAutoHideAsync();
-
 export default function RootLayout() {
   useEffect(() => {
-    // Hide splash screen after resources are loaded
     SplashScreen.hideAsync();
   }, []);
 
   return (
     <PaperProvider>
-      <MarkerCustomizationProvider>
-        <View style={styles.container}>
-          <Stack 
-            screenOptions={{
-              headerShown: false,
-              orientation: 'portrait'
-            }} 
-          />
-        </View>
-      </MarkerCustomizationProvider>
+      <DrillImportProvider>
+        <MarkerCustomizationProvider>
+          <DrillDeepLinkListener />
+          <View style={styles.container}>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                orientation: 'portrait',
+              }}
+            />
+          </View>
+        </MarkerCustomizationProvider>
+      </DrillImportProvider>
     </PaperProvider>
   );
 }
