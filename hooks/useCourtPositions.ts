@@ -202,5 +202,10 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     showShuttleTrail,
     togglePlayerTrails,
     toggleShuttleTrail,
+    drillSteps,
+    currentStepIndex: currentIndex,
+    stepCount: positionHistory.length,
+    goToStep,
+    importDrill,
   };
 } 

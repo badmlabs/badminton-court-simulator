@@ -6,7 +6,10 @@ import { IconButton } from './IconButton';
 import { useCourtPositions } from '../hooks/useCourtPositions';
 import { PositionTrail } from './PositionTrail';
 import { SettingsPanel } from './SettingsPanel';
+import { StepsPanel } from './StepsPanel';
 import { useMarkerCustomization } from '../context/MarkerCustomizationContext';
+import { useDrillImport } from '../context/DrillImportContext';
+import { decodeDrillFromEncoded } from '../utils/stepSerialization';
 
 export default function BadmintonCourt() {
   const screenWidth = Dimensions.get('window').width;
