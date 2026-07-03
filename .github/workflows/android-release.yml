@@ -12,22 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
-      - name: Add Node to PATH
-        run: |
-          echo "$(npm bin -g)" >> $GITHUB_PATH
-          which node
-          node --version
-
       - name: Setup Java JDK
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -45,13 +39,13 @@ jobs:
         run: yes | sdkmanager --licenses
 
       - name: Cache Gradle Wrapper
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-wrapper-${{ hashFiles('**/gradle-wrapper.properties') }}
 
       - name: Cache Gradle Dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.gradle/caches
           key: ${{ runner.os }}-gradle-caches-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
@@ -100,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download AAB Artifact
         uses: actions/download-artifact@v4
@@ -111,19 +105,12 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.0'
+          ruby-version: '3.3'
           bundler-cache: true
+          working-directory: android
 
       - name: Create Service Account Key File
         run: echo '${{ secrets.PLAY_STORE_CONFIG_JSON }}' > android/play-store-credentials.json
-
-      - name: Install Fastlane
-        run: |
-          cd android
-          gem install bundler
-          bundle init
-          bundle add fastlane
-          bundle install
 
       - name: Deploy to Play Store
         run: |

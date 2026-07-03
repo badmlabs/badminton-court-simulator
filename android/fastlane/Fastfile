@@ -1,13 +1,19 @@
+opt_out_usage
+
 default_platform(:android)
 
 platform :android do
   desc "Deploy a new version to the Google Play"
   lane :deploy do
     upload_to_play_store(
-      track: 'internal',  # Can be 'internal', 'alpha', 'beta', or 'production'
+      track: 'internal',
       json_key: 'play-store-credentials.json',
       aab: './app/build/outputs/bundle/release/app-release.aab',
-      package_name: 'com.haritabhgupta.badmintoncourtsimulator'
+      package_name: 'com.haritabhgupta.badmintoncourtsimulator',
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true
     )
   end
-end 
+end

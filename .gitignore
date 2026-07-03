@@ -89,7 +89,5 @@ android/app/src/main/res/mipmap*/ic_launcher*
 # Misc
 .secrets
 keystore.base64
-android/Gemfile
-android/Gemfile.lock
 android/play-store-credentials.json
 android/fastlane/report.xml
