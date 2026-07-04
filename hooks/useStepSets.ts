@@ -4,9 +4,17 @@ import { StepSet } from '../types/drill';
 import { appAlert } from '../utils/appAlert';
 
 const STORAGE_KEY = 'badminton-step-sets';
-const STEP_SET_LIMIT = 5;
+/** Free tier keeps this many saved drills; Drill Vault Pro lifts the cap. */
+export const STEP_SET_LIMIT = 5;
 
-export function useStepSets() {
+interface UseStepSetsOptions {
+  /** Pro subscribers save without the cap. */
+  isPro?: boolean;
+  /** Overrides the default limit alert (e.g. to pitch the upgrade). */
+  onLimitReached?: () => void;
+}
+
+export function useStepSets({ isPro = false, onLimitReached }: UseStepSetsOptions = {}) {
   const [stepSets, setStepSets] = useState<StepSet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -48,11 +56,15 @@ export function useStepSets() {
   // Returns null (after alerting) when the limit is hit.
   const saveStepSet = useCallback(async (stepSet: StepSet) => {
     const isUpdate = stepSets.some((existing) => existing.id === stepSet.id);
-    if (!isUpdate && stepSets.length >= STEP_SET_LIMIT) {
-      appAlert(
-        'Drill limit reached',
-        `Up to ${STEP_SET_LIMIT} drills can be saved. Delete one to make room.`
-      );
+    if (!isUpdate && !isPro && stepSets.length >= STEP_SET_LIMIT) {
+      if (onLimitReached) {
+        onLimitReached();
+      } else {
+        appAlert(
+          'Drill limit reached',
+          `Up to ${STEP_SET_LIMIT} drills can be saved. Delete one to make room.`
+        );
+      }
       return null;
     }
     setStepSets((prev) => {
@@ -61,7 +73,7 @@ export function useStepSets() {
       return next;
     });
     return stepSet;
-  }, [stepSets]);
+  }, [stepSets, isPro, onLimitReached]);
 
   // Functional updates keep the remaining callbacks stable across renders.
   const deleteStepSet = useCallback(async (id: string) => {

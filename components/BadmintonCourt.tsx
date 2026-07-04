@@ -8,10 +8,12 @@ import { PlayerMarker } from './PlayerMarker';
 import { IconButton } from './IconButton';
 import { CourtSvg } from './CourtSvg';
 import { useCourtPositions } from '../hooks/useCourtPositions';
-import { useStepSets } from '../hooks/useStepSets';
+import { STEP_SET_LIMIT, useStepSets } from '../hooks/useStepSets';
 import { PositionTrail } from './PositionTrail';
 import { SettingsPanel } from './SettingsPanel';
-import { StepSetsPanel } from './StepSetsPanel';
+import { DrillHubPanel, DrillHubTab } from './DrillHubPanel';
+import { drillStepsForCourt, VaultDrill } from '../data/vaultDrills';
+import { useVaultAccess } from '../hooks/useVaultAccess';
 import { useMarkerCustomization } from '../context/MarkerCustomizationContext';
 import { createStepSet, decodeSharedStepSet } from '../utils/stepSharing';
 import { StepSet } from '../types/drill';
@@ -90,9 +92,22 @@ export default function BadmintonCourt() {
   };
 
   const [isMenuVisible, setIsMenuVisible] = useState(false);
-  const [isStepSetsVisible, setIsStepSetsVisible] = useState(false);
+  // null = drill hub closed; otherwise the tab it opens on.
+  const [drillHubTab, setDrillHubTab] = useState<DrillHubTab | null>(null);
   const { customizations, updateMarkerCustomization } = useMarkerCustomization();
-  const { stepSets, saveStepSet, deleteStepSet, replaceStepSet, importStepSet } = useStepSets();
+  const vault = useVaultAccess();
+  const { stepSets, saveStepSet, deleteStepSet, replaceStepSet, importStepSet } = useStepSets({
+    isPro: vault.isSubscribed,
+    onLimitReached: () =>
+      appAlert(
+        'Saved drills are full',
+        `Free keeps ${STEP_SET_LIMIT} saved drills. Drill Vault Pro removes the limit.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'See Pro', onPress: () => setDrillHubTab('vault') },
+        ]
+      ),
+  });
 
   const {
     isDoubles,
@@ -201,6 +216,12 @@ export default function BadmintonCourt() {
     loadNormalizedSteps(stepSet.steps, stepSet.isDoubles);
   }, [loadNormalizedSteps]);
 
+  // Vault drills are authored in a fixed court frame; remap them onto the
+  // measured lines rect so they land on the painted court of this device.
+  const handleLoadVaultDrill = (drill: VaultDrill) => {
+    loadNormalizedSteps(drillStepsForCourt(drill.steps, courtDimensions), drill.isDoubles);
+  };
+
   return (
     <View style={styles.container} onLayout={onRootLayout}>
       {/* Full-bleed court */}
@@ -294,13 +315,22 @@ export default function BadmintonCourt() {
             {isDoubles ? 'Doubles' : 'Singles'} · Step {stepCount}
           </Text>
         </View>
-        <Pressable
-          onPress={() => setIsMenuVisible(true)}
-          hitSlop={8}
-          style={({ pressed }) => [styles.headerAction, pressed && styles.glassPressed]}
-        >
-          <MaterialCommunityIcons name="tune-variant" size={20} color={palette.textPrimary} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => setDrillHubTab('vault')}
+            hitSlop={8}
+            style={({ pressed }) => [styles.headerAction, pressed && styles.glassPressed]}
+          >
+            <MaterialCommunityIcons name="treasure-chest" size={20} color={palette.accent} />
+          </Pressable>
+          <Pressable
+            onPress={() => setIsMenuVisible(true)}
+            hitSlop={8}
+            style={({ pressed }) => [styles.headerAction, pressed && styles.glassPressed]}
+          >
+            <MaterialCommunityIcons name="tune-variant" size={20} color={palette.textPrimary} />
+          </Pressable>
+        </View>
       </View>
 
       {/* Court area spacer between header and dock — its measured rect hosts the lines */}
@@ -326,7 +356,7 @@ export default function BadmintonCourt() {
         <IconButton
           icon="playlist-play"
           label="Drills"
-          onPress={() => setIsStepSetsVisible(true)}
+          onPress={() => setDrillHubTab('mine')}
         />
       </View>
 
@@ -337,15 +367,18 @@ export default function BadmintonCourt() {
         onGameModeChange={toggleGameMode}
       />
 
-      <StepSetsPanel
-        isVisible={isStepSetsVisible}
-        onClose={() => setIsStepSetsVisible(false)}
+      <DrillHubPanel
+        isVisible={drillHubTab !== null}
+        initialTab={drillHubTab ?? 'mine'}
+        onClose={() => setDrillHubTab(null)}
+        vault={vault}
         stepSets={stepSets}
         currentStepCount={stepCount}
         onSave={handleSaveStepSet}
-        onLoad={handleLoadStepSet}
-        onDelete={deleteStepSet}
+        onLoadStepSet={handleLoadStepSet}
+        onDeleteStepSet={deleteStepSet}
         onImport={handleImportStepSet}
+        onLoadDrill={handleLoadVaultDrill}
       />
     </View>
   );
@@ -382,6 +415,11 @@ const styles = StyleSheet.create({
     ...sora('600'),
     fontSize: 13,
     color: palette.textPrimary,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   headerAction: {
     width: HEADER_HEIGHT,
