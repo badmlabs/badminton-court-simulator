@@ -48,64 +48,46 @@ export function IconCustomizationModal({
 
   const contentColor = markerContentColor(currentColor);
 
-  const pickImage = async () => {
+  const launchPicker = async (source: 'camera' | 'library') => {
+    const launch = source === 'camera'
+      ? ImagePicker.launchCameraAsync
+      : ImagePicker.launchImageLibraryAsync;
+    const result = await launch({
+      mediaTypes: ['images'],
+      allowsEditing: true, // ponytail: the OS crop UI is the pinch/pan editor
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    let uri = asset.uri;
+    // Cap size for memory; never upscale small images
+    if (asset.width > 512) {
+      const resized = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 512 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      uri = resized.uri;
+    }
+
+    // Save here, where the URI exists — awaiting pickImage() resolves when the
+    // alert renders, long before the user has picked, so state there is stale
+    setSelectedImage(uri);
+    onSave('photo', uri);
+  };
+
+  const pickImage = () => {
     // Show action sheet to choose between camera and gallery
     appAlert(
       'Select Photo',
       'Choose how you want to add a photo',
       [
-        {
-          text: 'Take Photo',
-          onPress: async () => {
-            const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [1, 1],
-              quality: 0.8,
-            });
-
-            if (!result.canceled && result.assets[0]) {
-              const imageUri = result.assets[0].uri;
-              
-              // Crop the image to a square if needed
-              const manipulatedImage = await ImageManipulator.manipulateAsync(
-                imageUri,
-                [{ crop: { originX: 0, originY: 0, width: 200, height: 200 } }],
-                { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-              );
-              
-              setSelectedImage(manipulatedImage.uri);
-            }
-          }
-        },
-        {
-          text: 'Choose from Gallery',
-          onPress: async () => {
-            const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [1, 1],
-              quality: 0.8,
-            });
-
-            if (!result.canceled && result.assets[0]) {
-              const imageUri = result.assets[0].uri;
-              
-              // Crop the image to a square if needed
-              const manipulatedImage = await ImageManipulator.manipulateAsync(
-                imageUri,
-                [{ crop: { originX: 0, originY: 0, width: 200, height: 200 } }],
-                { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-              );
-              
-              setSelectedImage(manipulatedImage.uri);
-            }
-          }
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
+        { text: 'Take Photo', onPress: () => launchPicker('camera') },
+        { text: 'Choose from Gallery', onPress: () => launchPicker('library') },
+        { text: 'Cancel', style: 'cancel' },
       ]
     );
   };
@@ -171,15 +153,7 @@ export function IconCustomizationModal({
         Tap the circle to take or choose a photo
       </Text>
       <View style={styles.previewContainer}>
-        <TouchableOpacity
-          onPress={async () => {
-            await pickImage();
-            if (selectedImage) {
-              onSave('photo', selectedImage);
-            }
-          }}
-          style={previewCircleStyle}
-        >
+        <TouchableOpacity onPress={pickImage} style={previewCircleStyle}>
           {selectedImage ? (
             <Image 
               source={{ uri: selectedImage }} 
