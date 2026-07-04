@@ -1,0 +1,75 @@
+name: PR APK
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-apk-${{ github.event.number }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Specific NDK Version
+        run: |
+          echo "y" | sdkmanager --install "ndk;28.0.13004108"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.0.13004108" >> $GITHUB_ENV
+
+      - name: Accept Android Licenses
+        run: yes | sdkmanager --licenses
+
+      - name: Cache Gradle Wrapper
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-wrapper-${{ hashFiles('**/gradle-wrapper.properties') }}
+
+      - name: Cache Gradle Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-caches-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-caches-
+
+      # npm install (not ci): the committed lockfile is load-bearing — regenerating
+      # it re-rolls npm's hoisting and has produced trees where expo native modules
+      # nest under node_modules/expo and never get autolinked. Same recipe as the
+      # android-release workflow.
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      # No expo prebuild and no release keystore here: the generated res assets
+      # and the debug keystore are tracked in git, and assembleRelease falls
+      # back to debug signing when keystore.properties is absent.
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleRelease
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-pr${{ github.event.number }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 14
