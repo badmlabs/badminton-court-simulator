@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
-import { View, StyleSheet, Modal, TouchableOpacity, Dimensions, Animated, Text, Image } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, Modal, TouchableOpacity, Text, Image, ScrollView } from 'react-native';
+import { appAlert } from '../utils/appAlert';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppSlider } from './AppSlider';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,9 +11,14 @@ import {
   markerRingColor,
   palette,
   radii,
-  shadows,
+  sora,
   spacing,
 } from '../constants/theme';
+
+// Hue slider ramp from the design spec
+const HUE_RAMP = [
+  '#FF4D4D', '#FFC94D', '#8CFF4D', '#4DFFC1', '#4D9BFF', '#A64DFF', '#FF4D4D',
+] as const;
 
 // Reusable component for player/shuttle items
 interface MarkerItemProps {
@@ -25,13 +31,13 @@ interface MarkerItemProps {
 function MarkerItem({ markerId, title, customizations, updateMarkerCustomization }: MarkerItemProps) {
   const customization = customizations[markerId];
   const [showIconCustomization, setShowIconCustomization] = useState(false);
-  
+
   // Convert current color to hue value (0-360)
   const getHueFromColor = (color: string) => {
     // Handle white and black specially
     if (color === '#ffffff') return 0; // White - keep at red position but maintain white
     if (color === '#000000') return 0; // Black - keep at red position but maintain black
-    
+
     // Convert hex to RGB
     const hexToRgb = (hex: string) => {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -75,14 +81,14 @@ function MarkerItem({ markerId, title, customizations, updateMarkerCustomization
     const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
     return hsl.h;
   };
-  
+
   const currentHue = getHueFromColor(customization.color);
-  
+
   const updateColor = (hue: number) => {
     // Convert hue to hex color with full saturation and medium lightness
     const hueToHex = (h: number) => {
       const normalizedHue = h % 360;
-      
+
       // Special handling for white/black - if we're at hue 0 and the current color is white/black, maintain it
       if (normalizedHue === 0) {
         const currentColor = customizations[markerId].color;
@@ -90,16 +96,16 @@ function MarkerItem({ markerId, title, customizations, updateMarkerCustomization
           return currentColor; // Keep the current white/black color
         }
       }
-      
+
       const saturation = 1; // Full saturation for vibrant colors
       const lightness = 0.5; // Medium lightness for solid colors
-      
+
       // Convert HSL to RGB
       const hueToRgb = (h: number, s: number, l: number) => {
         const c = (1 - Math.abs(2 * l - 1)) * s;
         const x = c * (1 - Math.abs((h / 60) % 2 - 1));
         const m = l - c / 2;
-        
+
         let r, g, b;
         if (h < 60) {
           [r, g, b] = [c, x, 0];
@@ -114,116 +120,111 @@ function MarkerItem({ markerId, title, customizations, updateMarkerCustomization
         } else {
           [r, g, b] = [c, 0, x];
         }
-        
+
         const toHex = (n: number) => {
           const hex = Math.round((n + m) * 255).toString(16);
           return hex.length === 1 ? '0' + hex : hex;
         };
-        
+
         return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
       };
-      
+
       return hueToRgb(normalizedHue, saturation, lightness);
     };
-    
+
     updateMarkerCustomization(markerId, { color: hueToHex(hue) });
   };
 
-  const previewSize = Math.min(customization.size * 0.8, 45);
+  const isShuttle = markerId === 'Shuttle';
 
   return (
-    <View style={styles.markerItemContainer}>
-      <View style={styles.markerItemRow}>
-        <TouchableOpacity
-          onPress={() => markerId !== 'Shuttle' && setShowIconCustomization(true)}
-          disabled={markerId === 'Shuttle'}
-          style={styles.previewColumn}
+    <View style={styles.rowCard}>
+      <TouchableOpacity
+        onPress={() => !isShuttle && setShowIconCustomization(true)}
+        disabled={isShuttle}
+        style={styles.avatarWrap}
+      >
+        <View
+          style={[
+            styles.avatar,
+            {
+              backgroundColor: customization.color,
+              borderColor: markerRingColor(customization.color),
+            },
+          ]}
         >
-          <View
-            style={[
-              styles.markerPreview,
-              {
-                backgroundColor: customization.color,
-                borderColor: markerRingColor(customization.color),
-                width: previewSize,
-                height: previewSize,
-                borderRadius: previewSize / 2,
-              }
-            ]}
-          >
-            {customization.iconType === 'icon' && (
-              <MaterialCommunityIcons
-                name={customization.icon as any}
-                size={previewSize * 0.6}
-                color={markerContentColor(customization.color)}
-              />
-            )}
-            {customization.iconType === 'text' && (
-              <Text style={[
-                styles.textIcon,
-                {
-                  fontSize: previewSize * 0.4,
-                  color: markerContentColor(customization.color),
-                }
-              ]}>
-                {customization.icon}
-              </Text>
-            )}
-            {customization.iconType === 'photo' && (
-              <Image
-                source={{ uri: customization.icon }}
-                style={[
-                  styles.photoIcon,
-                  {
-                    width: previewSize * 0.8,
-                    height: previewSize * 0.8,
-                    borderRadius: previewSize * 0.4,
-                  }
-                ]}
-              />
-            )}
-          </View>
-          <Text style={styles.previewLabel}>{title}</Text>
-        </TouchableOpacity>
-
-        <View style={styles.colorSliderContainer}>
-          <AppSlider
-            minimumValue={0}
-            maximumValue={360}
-            value={currentHue}
-            onValueChange={(value) => updateColor(Math.round(value))}
-            thumbColor={customization.color}
-            track={
-              <LinearGradient
-                colors={['#ff0000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#ff00ff', '#ff0000']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.colorGradient}
-              />
-            }
-          />
+          {customization.iconType === 'icon' && (
+            <MaterialCommunityIcons
+              name={customization.icon as any}
+              size={19}
+              color={markerContentColor(customization.color)}
+            />
+          )}
+          {customization.iconType === 'text' && (
+            <Text
+              style={[styles.avatarText, { color: markerContentColor(customization.color) }]}
+              numberOfLines={1}
+            >
+              {customization.icon}
+            </Text>
+          )}
+          {customization.iconType === 'photo' && (
+            <Image source={{ uri: customization.icon }} style={styles.avatarPhoto} />
+          )}
         </View>
+        {!isShuttle && (
+          <View style={styles.editBadge}>
+            <MaterialCommunityIcons name="pencil" size={9} color={palette.onAccent} />
+          </View>
+        )}
+      </TouchableOpacity>
 
-        <View style={styles.sizeSliderContainer}>
+      <View style={styles.rowBody}>
+        <Text style={styles.rowTitle}>{title}</Text>
+        <View style={styles.sliderRow}>
+          <View style={styles.hueSlider}>
+            <AppSlider
+              minimumValue={0}
+              maximumValue={360}
+              value={currentHue}
+              onValueChange={(value) => updateColor(Math.round(value))}
+              thumbColor={customization.color}
+              thumbSize={18}
+              track={
+                <LinearGradient
+                  colors={HUE_RAMP}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.hueTrack}
+                />
+              }
+            />
+          </View>
           <MaterialCommunityIcons name="resize" size={14} color={palette.textMuted} />
-          <AppSlider
-            style={styles.sizeSlider}
-            minimumValue={20}
-            maximumValue={80}
-            value={customization.size}
-            onValueChange={(value) => updateMarkerCustomization(markerId, { size: Math.round(value) })}
-          />
+          <View style={styles.sizeSlider}>
+            <AppSlider
+              minimumValue={20}
+              maximumValue={80}
+              value={customization.size}
+              onValueChange={(value) => updateMarkerCustomization(markerId, { size: Math.round(value) })}
+              trackColor="rgba(255, 255, 255, 0.16)"
+              trackHeight={5}
+              filledColor="rgba(255, 201, 77, 0.55)"
+              thumbColor={palette.accent}
+              thumbSize={16}
+            />
+          </View>
         </View>
       </View>
 
-      {markerId !== 'Shuttle' && (
+      {!isShuttle && (
         <IconCustomizationModal
           visible={showIconCustomization}
           onClose={() => setShowIconCustomization(false)}
           onSave={(type: IconType, value: string) => {
-            updateMarkerCustomization(markerId, { 
-              icon: value, 
-              iconType: type 
+            updateMarkerCustomization(markerId, {
+              icon: value,
+              iconType: type
             });
           }}
           currentValue={customization.icon}
@@ -241,40 +242,19 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
-interface SectionCardProps {
-  label: string;
-  children: React.ReactNode;
-}
-
-function SectionCard({ label, children }: SectionCardProps) {
-  return (
-    <View style={styles.sectionBlock}>
-      <Text style={styles.sectionLabel}>{label}</Text>
-      <View style={styles.sectionCard}>{children}</View>
-    </View>
-  );
-}
-
 export function SettingsPanel({ isVisible, onClose }: SettingsPanelProps) {
   const { customizations, updateMarkerCustomization, resetCustomizations } = useMarkerCustomization();
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const screenHeight = Dimensions.get('window').height;
-  
-  // Use a separate animated value for height to avoid conflicts
-  const heightAnim = useRef(new Animated.Value(screenHeight * 0.5)).current;
-  
-  // Update height based on scroll with debouncing
-  React.useEffect(() => {
-    const listener = scrollY.addListener(({ value }) => {
-      const newHeight = Math.max(
-        screenHeight * 0.5,
-        Math.min(screenHeight * 0.95, screenHeight * 0.5 + (value * 0.225))
-      );
-      heightAnim.setValue(newHeight);
-    });
-    
-    return () => scrollY.removeListener(listener);
-  }, [scrollY, heightAnim, screenHeight]);
+
+  const confirmReset = () => {
+    appAlert(
+      'Reset all customizations',
+      'Restore default colors, sizes and icons for every marker?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Reset', style: 'destructive', onPress: resetCustomizations },
+      ]
+    );
+  };
 
   return (
     <Modal
@@ -284,17 +264,12 @@ export function SettingsPanel({ isVisible, onClose }: SettingsPanelProps) {
       onRequestClose={onClose}
     >
       <View style={styles.modalOverlay}>
-        <TouchableOpacity 
-          style={styles.overlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={styles.overlay}
+          activeOpacity={1}
           onPress={onClose}
         />
-        <Animated.View style={[
-          styles.bottomSheet,
-          {
-            height: heightAnim,
-          }
-        ]}>
+        <View style={styles.bottomSheet}>
           <View style={styles.grabHandle} />
           <View style={styles.header}>
             <View>
@@ -302,69 +277,57 @@ export function SettingsPanel({ isVisible, onClose }: SettingsPanelProps) {
               <Text style={styles.headerSubtitle}>Marker colors, icons and sizes</Text>
             </View>
             <TouchableOpacity onPress={onClose} hitSlop={8} style={styles.closeButton}>
-              <MaterialCommunityIcons name="close" size={20} color={palette.textSecondary} />
+              <MaterialCommunityIcons name="close" size={18} color={palette.textPrimary} />
             </TouchableOpacity>
           </View>
 
-          <Animated.ScrollView 
+          <ScrollView
             style={styles.scrollView}
-            showsVerticalScrollIndicator={true}
             contentContainerStyle={styles.scrollContent}
-            onScroll={Animated.event(
-              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-              { useNativeDriver: false }
-            )}
-            scrollEventThrottle={32}
-            bounces={false}
-            decelerationRate="normal"
+            showsVerticalScrollIndicator={false}
           >
-            <SectionCard label="Team 1">
-              <MarkerItem
-                markerId="P1"
-                title="Player 1"
-                customizations={customizations}
-                updateMarkerCustomization={updateMarkerCustomization}
-              />
-              <View style={styles.rowDivider} />
-              <MarkerItem
-                markerId="P2"
-                title="Player 2"
-                customizations={customizations}
-                updateMarkerCustomization={updateMarkerCustomization}
-              />
-            </SectionCard>
+            <Text style={styles.sectionLabel}>Team 1</Text>
+            <MarkerItem
+              markerId="P1"
+              title="Player 1"
+              customizations={customizations}
+              updateMarkerCustomization={updateMarkerCustomization}
+            />
+            <MarkerItem
+              markerId="P2"
+              title="Player 2"
+              customizations={customizations}
+              updateMarkerCustomization={updateMarkerCustomization}
+            />
 
-            <SectionCard label="Team 2">
-              <MarkerItem
-                markerId="P3"
-                title="Player 3"
-                customizations={customizations}
-                updateMarkerCustomization={updateMarkerCustomization}
-              />
-              <View style={styles.rowDivider} />
-              <MarkerItem
-                markerId="P4"
-                title="Player 4"
-                customizations={customizations}
-                updateMarkerCustomization={updateMarkerCustomization}
-              />
-            </SectionCard>
+            <Text style={styles.sectionLabel}>Team 2</Text>
+            <MarkerItem
+              markerId="P3"
+              title="Player 3"
+              customizations={customizations}
+              updateMarkerCustomization={updateMarkerCustomization}
+            />
+            <MarkerItem
+              markerId="P4"
+              title="Player 4"
+              customizations={customizations}
+              updateMarkerCustomization={updateMarkerCustomization}
+            />
 
-            <SectionCard label="Shuttle">
-              <MarkerItem
-                markerId="Shuttle"
-                title="Shuttle"
-                customizations={customizations}
-                updateMarkerCustomization={updateMarkerCustomization}
-              />
-            </SectionCard>
+            <Text style={styles.sectionLabel}>Shuttle</Text>
+            <MarkerItem
+              markerId="Shuttle"
+              title="Shuttle"
+              customizations={customizations}
+              updateMarkerCustomization={updateMarkerCustomization}
+            />
 
-            <TouchableOpacity style={styles.resetButton} onPress={resetCustomizations}>
-              <MaterialCommunityIcons name="restore" size={18} color={palette.danger} />
+            <TouchableOpacity style={styles.resetButton} onPress={confirmReset}>
+              <MaterialCommunityIcons name="restore" size={17} color={palette.danger} />
               <Text style={styles.resetButtonText}>Reset all customizations</Text>
             </TouchableOpacity>
-          </Animated.ScrollView>
-        </Animated.View>
+          </ScrollView>
+        </View>
       </View>
     </Modal>
   );
@@ -384,22 +347,25 @@ const styles = StyleSheet.create({
     backgroundColor: palette.overlay,
   },
   bottomSheet: {
+    height: '63%',
     backgroundColor: palette.surface,
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: palette.hairline,
-    minHeight: 400,
-    ...shadows.floating,
+    borderTopWidth: 1,
+    borderColor: palette.surfaceBorder,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -18 },
+    shadowOpacity: 0.55,
+    shadowRadius: 25,
+    elevation: 16,
   },
   grabHandle: {
     alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: palette.hairlineStrong,
-    marginTop: spacing.md,
+    width: 38,
+    height: 4.5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    marginTop: 10,
   },
   header: {
     flexDirection: 'row',
@@ -407,16 +373,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.xs,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    ...sora('600'),
+    fontSize: 19,
     color: palette.textPrimary,
-    letterSpacing: 0.2,
   },
   headerSubtitle: {
-    fontSize: 12,
+    ...sora('400'),
+    fontSize: 11.5,
     color: palette.textSecondary,
     marginTop: 2,
   },
@@ -424,7 +390,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: palette.surfaceRaised,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -434,100 +400,104 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     paddingBottom: spacing.xxl,
   },
-  sectionBlock: {
-    marginBottom: spacing.lg,
-  },
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
+    ...sora('700'),
+    fontSize: 10,
+    letterSpacing: 1.6,
     textTransform: 'uppercase',
     color: palette.textMuted,
-    marginBottom: spacing.sm,
-    marginLeft: spacing.xs,
+    marginTop: spacing.md,
+    marginBottom: 7,
   },
-  sectionCard: {
-    backgroundColor: palette.surfaceRaised,
-    borderRadius: radii.lg,
+  rowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: palette.card,
     borderWidth: 1,
-    borderColor: palette.hairline,
-    paddingVertical: spacing.sm,
+    borderColor: palette.cardBorder,
+    borderRadius: radii.md,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    marginBottom: 6,
   },
-  rowDivider: {
-    height: 1,
-    backgroundColor: palette.hairline,
-    marginHorizontal: spacing.lg,
+  avatarWrap: {
+    width: 40,
+    height: 40,
   },
-  markerItemContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  markerItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  previewColumn: {
-    alignItems: 'center',
-    width: 58,
-  },
-  markerPreview: {
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 2,
-    justifyContent: 'center',
     alignItems: 'center',
-    ...shadows.card,
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  previewLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: palette.textSecondary,
-    marginTop: spacing.xs,
+  avatarText: {
+    ...sora('700'),
+    fontSize: 13,
   },
-  colorSliderContainer: {
+  avatarPhoto: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+  },
+  editBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: palette.accent,
+    borderWidth: 2,
+    borderColor: '#0F241A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowBody: {
     flex: 1,
-    marginHorizontal: spacing.md,
   },
-  colorGradient: {
-    height: 10,
-    borderRadius: 5,
+  rowTitle: {
+    ...sora('600'),
+    fontSize: 13,
+    color: palette.textPrimary,
+    marginBottom: 2,
   },
-  sizeSliderContainer: {
-    width: 120,
+  sliderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: spacing.sm,
+  },
+  hueSlider: {
+    flex: 1.5,
+  },
+  hueTrack: {
+    height: 8,
+    borderRadius: radii.pill,
   },
   sizeSlider: {
     flex: 1,
-    height: 30,
-  },
-  textIcon: {
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  photoIcon: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   resetButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
+    height: 46,
     backgroundColor: palette.dangerSoft,
     borderWidth: 1,
-    borderColor: 'rgba(251, 113, 133, 0.35)',
-    borderRadius: radii.pill,
-    paddingVertical: 13,
-    marginTop: spacing.xs,
+    borderColor: palette.dangerBorder,
+    borderRadius: 14,
+    marginTop: spacing.md,
   },
   resetButtonText: {
+    ...sora('600'),
     color: palette.danger,
-    fontWeight: '600',
     fontSize: 14,
-    letterSpacing: 0.3,
   },
 });

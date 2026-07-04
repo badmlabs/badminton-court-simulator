@@ -12,6 +12,7 @@ interface AppSliderProps {
   track?: React.ReactNode;
   filledColor?: string;
   trackColor?: string;
+  trackHeight?: number;
   thumbColor?: string;
   thumbSize?: number;
 }
@@ -30,6 +31,7 @@ export function AppSlider({
   track,
   filledColor = palette.accent,
   trackColor = palette.hairlineStrong,
+  trackHeight = 4,
   thumbColor = palette.accent,
   thumbSize = 20,
 }: AppSliderProps) {
@@ -61,7 +63,12 @@ export function AppSlider({
     >
       <View style={styles.trackContainer} pointerEvents="none">
         {track ?? (
-          <View style={[styles.defaultTrack, { backgroundColor: trackColor }]}>
+          <View
+            style={[
+              styles.defaultTrack,
+              { backgroundColor: trackColor, height: trackHeight, borderRadius: trackHeight / 2 },
+            ]}
+          >
             <View
               style={[
                 styles.defaultFill,
@@ -97,18 +104,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   defaultTrack: {
-    height: 4,
-    borderRadius: 2,
     overflow: 'hidden',
   },
   defaultFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 999,
   },
   thumb: {
     position: 'absolute',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.9)',
+    borderWidth: 2.5,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,

@@ -9,129 +9,103 @@ import Svg, {
 } from 'react-native-svg';
 import { palette } from '../constants/theme';
 
-interface CourtSvgProps {
+export interface LinesRect {
+  x: number;
+  y: number;
   width: number;
   height: number;
 }
 
+interface CourtSvgProps {
+  width: number;
+  height: number;
+  /** Rect the painted court lines are stretched into; the green mat fills the whole screen. */
+  linesRect: LinesRect;
+}
+
+// Real BWF proportions, 1 unit = 1 cm, full doubles court 610 x 1340.
+const COURT_W = 610;
+const COURT_H = 1340;
+const SINGLES_X = [46, 564];
+const LONG_SERVICE_Y = [76, 1264];
+const SHORT_SERVICE_Y = [472, 868];
+const CENTER_X = 305;
+const NET_Y = 670;
+const LINE_UNITS = 4; // real 40mm painted lines
+
 /**
- * Programmatically drawn badminton court (portrait, net across the middle).
- * Uses real court proportions: doubles court 6.10m x 13.40m, singles
- * sidelines 0.46m in, short service lines 1.98m from the net, doubles long
- * service lines 0.76m from the back boundary.
+ * Full-bleed "Match Point" court: green gradient edge-to-edge, white 80%
+ * painted lines stretched into `linesRect`, dashed net with posts.
  */
-function CourtSvgComponent({ width, height }: CourtSvgProps) {
-  // Arena floor margin and out-of-bounds apron around the painted lines.
-  const floorRadius = 24;
-  const apronInset = 6;
-  const padX = Math.max(16, width * 0.055);
-  const padY = Math.max(22, height * 0.05);
-
-  // Painted court boundary (doubles court).
-  const x0 = apronInset + padX;
-  const x1 = width - apronInset - padX;
-  const y0 = apronInset + padY;
-  const y1 = height - apronInset - padY;
-  const courtW = x1 - x0;
-  const courtH = y1 - y0;
-
-  const netY = (y0 + y1) / 2;
-  const singlesInset = courtW * (46 / 610);
-  const shortServiceOffset = courtH * (198 / 1340);
-  const longServiceInset = courtH * (76 / 1340);
-  const centerX = (x0 + x1) / 2;
+function CourtSvgComponent({ width, height, linesRect }: CourtSvgProps) {
+  const sx = linesRect.width / COURT_W;
+  const sy = linesRect.height / COURT_H;
+  const X = (u: number) => linesRect.x + u * sx;
+  const Y = (u: number) => linesRect.y + u * sy;
 
   const line = {
     stroke: palette.courtLine,
-    strokeWidth: 2,
+    strokeWidth: Math.max(1.5, LINE_UNITS * sx),
   };
+
+  const netY = Y(NET_Y);
+  const netOverhang = 20 * sx;
 
   return (
     <Svg width={width} height={height}>
       <Defs>
-        <LinearGradient id="matGradient" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={palette.courtMatLight} />
-          <Stop offset="0.5" stopColor={palette.courtMat} />
-          <Stop offset="1" stopColor={palette.courtMatLight} />
-        </LinearGradient>
-        <LinearGradient id="apronGradient" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={palette.courtApronEdge} />
-          <Stop offset="1" stopColor={palette.courtApron} />
+        {/* 178deg court gradient approximated as vertical */}
+        <LinearGradient id="courtGradient" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={palette.courtTop} />
+          <Stop offset="0.55" stopColor={palette.courtMid} />
+          <Stop offset="1" stopColor={palette.courtBottom} />
         </LinearGradient>
       </Defs>
 
-      {/* Arena floor */}
-      <Rect
-        x={0.5}
-        y={0.5}
-        width={width - 1}
-        height={height - 1}
-        rx={floorRadius}
-        fill={palette.surfaceSunken}
-        stroke={palette.hairline}
-        strokeWidth={1}
-      />
+      <Rect x={0} y={0} width={width} height={height} fill="url(#courtGradient)" />
 
-      {/* Out-of-bounds apron */}
+      {/* Outer boundary (doubles sidelines + back boundary lines) */}
       <Rect
-        x={apronInset}
-        y={apronInset}
-        width={width - apronInset * 2}
-        height={height - apronInset * 2}
-        rx={floorRadius - 6}
-        fill="url(#apronGradient)"
-      />
-
-      {/* Court mat (in-bounds area) */}
-      <Rect x={x0} y={y0} width={courtW} height={courtH} fill="url(#matGradient)" />
-
-      {/* Outer boundary (doubles court) */}
-      <Rect
-        x={x0}
-        y={y0}
-        width={courtW}
-        height={courtH}
+        x={X(0)}
+        y={Y(0)}
+        width={linesRect.width}
+        height={linesRect.height}
         fill="none"
         {...line}
       />
 
       {/* Singles sidelines */}
-      <Line x1={x0 + singlesInset} y1={y0} x2={x0 + singlesInset} y2={y1} {...line} />
-      <Line x1={x1 - singlesInset} y1={y0} x2={x1 - singlesInset} y2={y1} {...line} />
+      {SINGLES_X.map((x) => (
+        <Line key={`s${x}`} x1={X(x)} y1={Y(0)} x2={X(x)} y2={Y(COURT_H)} {...line} />
+      ))}
 
       {/* Doubles long service lines */}
-      <Line x1={x0} y1={y0 + longServiceInset} x2={x1} y2={y0 + longServiceInset} {...line} />
-      <Line x1={x0} y1={y1 - longServiceInset} x2={x1} y2={y1 - longServiceInset} {...line} />
+      {LONG_SERVICE_Y.map((y) => (
+        <Line key={`l${y}`} x1={X(0)} y1={Y(y)} x2={X(COURT_W)} y2={Y(y)} {...line} />
+      ))}
 
       {/* Short service lines */}
-      <Line x1={x0} y1={netY - shortServiceOffset} x2={x1} y2={netY - shortServiceOffset} {...line} />
-      <Line x1={x0} y1={netY + shortServiceOffset} x2={x1} y2={netY + shortServiceOffset} {...line} />
+      {SHORT_SERVICE_Y.map((y) => (
+        <Line key={`ss${y}`} x1={X(0)} y1={Y(y)} x2={X(COURT_W)} y2={Y(y)} {...line} />
+      ))}
 
-      {/* Center lines (from short service line to back boundary) */}
-      <Line x1={centerX} y1={y0} x2={centerX} y2={netY - shortServiceOffset} {...line} />
-      <Line x1={centerX} y1={netY + shortServiceOffset} x2={centerX} y2={y1} {...line} />
+      {/* Center lines (back boundary to short service line) */}
+      <Line x1={X(CENTER_X)} y1={Y(0)} x2={X(CENTER_X)} y2={Y(SHORT_SERVICE_Y[0])} {...line} />
+      <Line x1={X(CENTER_X)} y1={Y(SHORT_SERVICE_Y[1])} x2={X(CENTER_X)} y2={Y(COURT_H)} {...line} />
 
-      {/* Net: mesh suggestion + tape + posts */}
+      {/* Net: white dashed line past both sidelines, filled post at each end */}
       <Line
-        x1={x0 - 8}
+        x1={X(0) - netOverhang}
         y1={netY}
-        x2={x1 + 8}
+        x2={X(COURT_W) + netOverhang}
         y2={netY}
-        stroke={palette.courtNet}
-        strokeOpacity={0.45}
-        strokeWidth={7}
-        strokeDasharray="2 3"
+        stroke="#FFFFFF"
+        strokeWidth={3}
+        strokeDasharray="1 9"
+        strokeLinecap="round"
       />
-      <Line
-        x1={x0 - 8}
-        y1={netY}
-        x2={x1 + 8}
-        y2={netY}
-        stroke={palette.courtNet}
-        strokeWidth={2.5}
-      />
-      <Circle cx={x0 - 8} cy={netY} r={4.5} fill={palette.courtNet} />
-      <Circle cx={x1 + 8} cy={netY} r={4.5} fill={palette.courtNet} />
+      <Circle cx={X(0) - netOverhang} cy={netY} r={5} fill="#FFFFFF" />
+      <Circle cx={X(COURT_W) + netOverhang} cy={netY} r={5} fill="#FFFFFF" />
     </Svg>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Modal, TouchableOpacity, Text, TextInput, Image, Alert } from 'react-native';
+import { View, StyleSheet, Modal, TouchableOpacity, Text, TextInput, Image } from 'react-native';
+import { appAlert } from '../utils/appAlert';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -9,6 +10,7 @@ import {
   palette,
   radii,
   shadows,
+  sora,
   spacing,
 } from '../constants/theme';
 
@@ -48,7 +50,7 @@ export function IconCustomizationModal({
 
   const pickImage = async () => {
     // Show action sheet to choose between camera and gallery
-    Alert.alert(
+    appAlert(
       'Select Photo',
       'Choose how you want to add a photo',
       [
@@ -253,8 +255,8 @@ export function IconCustomizationModal({
                 >
                   <MaterialCommunityIcons
                     name={tab.icon as any}
-                    size={18}
-                    color={isActive ? palette.onAccent : palette.textSecondary}
+                    size={17}
+                    color={isActive ? palette.onAccent : 'rgba(255, 255, 255, 0.75)'}
                   />
                   <Text style={[styles.segmentLabel, isActive && styles.activeSegmentLabel]}>
                     {tab.label}
@@ -276,18 +278,18 @@ export function IconCustomizationModal({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: palette.overlay,
+    backgroundColor: palette.overlayStrong,
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.xl,
   },
   modalContent: {
-    backgroundColor: palette.surfaceRaised,
+    backgroundColor: palette.dialog,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: palette.hairline,
-    width: '100%',
-    maxWidth: 400,
+    borderColor: palette.dialogBorder,
+    width: 332,
+    maxWidth: '100%',
     ...shadows.floating,
   },
   modalHeader: {
@@ -299,15 +301,15 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    ...sora('600'),
+    fontSize: 16.5,
     color: palette.textPrimary,
   },
   closeButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: palette.surface,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
     borderColor: palette.hairline,
     alignItems: 'center',
@@ -316,31 +318,31 @@ const styles = StyleSheet.create({
   segmentContainer: {
     flexDirection: 'row',
     marginHorizontal: spacing.xl,
-    backgroundColor: palette.surfaceSunken,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: palette.hairline,
-    padding: 3,
-    gap: 3,
+    padding: 4,
   },
   segment: {
     flex: 1,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 9,
     borderRadius: radii.pill,
   },
   activeSegment: {
     backgroundColor: palette.accent,
   },
   segmentLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: palette.textSecondary,
+    ...sora('600'),
+    fontSize: 12.5,
+    color: 'rgba(255, 255, 255, 0.75)',
   },
   activeSegmentLabel: {
+    ...sora('700'),
     color: palette.onAccent,
   },
   contentArea: {
@@ -348,7 +350,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   contentDescription: {
-    fontSize: 13,
+    ...sora('400'),
+    fontSize: 12,
     color: palette.textSecondary,
     textAlign: 'center',
   },
@@ -357,24 +360,24 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   previewCircle: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2.5,
-    ...shadows.card,
+    borderWidth: 3,
+    ...shadows.floating,
   },
   textInputInCircle: {
-    fontWeight: 'bold',
-    fontSize: 20,
+    ...sora('700'),
+    fontSize: 22,
     padding: 0,
     margin: 0,
   },
   photoPreviewImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 38,
+    borderRadius: 42,
   },
   removeButton: {
     flexDirection: 'row',
@@ -386,11 +389,11 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: palette.dangerSoft,
     borderWidth: 1,
-    borderColor: 'rgba(251, 113, 133, 0.35)',
+    borderColor: palette.dangerBorder,
   },
   removeButtonText: {
+    ...sora('600'),
     color: palette.danger,
-    fontWeight: '600',
     fontSize: 13,
   },
 });

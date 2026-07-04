@@ -10,6 +10,7 @@ import {
   palette,
   radii,
   shadows,
+  sora,
   spacing,
 } from '../constants/theme';
 
@@ -156,7 +157,7 @@ export function PlayerMarker({
         {iconType === 'icon' && (
           <MaterialCommunityIcons
             name={icon as any}
-            size={markerSize * 0.6}
+            size={markerSize * 0.48}
             color={contentColor}
           />
         )}
@@ -396,13 +397,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   closeButtonText: {
+    ...sora('700'),
     color: palette.onAccent,
-    fontWeight: '700',
     fontSize: 15,
     letterSpacing: 0.3,
   },
   textIcon: {
-    fontWeight: 'bold',
+    ...sora('700'),
     textAlign: 'center',
   },
   photoIcon: {

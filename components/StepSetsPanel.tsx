@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Modal, ScrollView, Share, Alert, Text, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Modal, ScrollView, Share, Text, TouchableOpacity } from 'react-native';
+import { appAlert } from '../utils/appAlert';
 import { Portal, TextInput } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { StepSet } from '../types/drill';
 import { decodeSharedStepSet, getShareMessage } from '../utils/stepSharing';
-import { palette, radii, shadows, spacing } from '../constants/theme';
+import { palette, radii, shadows, sora, spacing } from '../constants/theme';
 
 interface StepSetsPanelProps {
   isVisible: boolean;
@@ -20,14 +21,24 @@ interface StepSetsPanelProps {
 
 interface ListActionProps {
   icon: string;
-  color?: string;
+  variant?: 'primary' | 'glass' | 'danger';
   onPress: () => void;
 }
 
-function ListAction({ icon, color = palette.textSecondary, onPress }: ListActionProps) {
+function ListAction({ icon, variant = 'glass', onPress }: ListActionProps) {
+  const color =
+    variant === 'primary' ? palette.onAccent : variant === 'danger' ? palette.danger : palette.textPrimary;
   return (
-    <TouchableOpacity onPress={onPress} hitSlop={6} style={styles.listAction}>
-      <MaterialCommunityIcons name={icon as any} size={19} color={color} />
+    <TouchableOpacity
+      onPress={onPress}
+      hitSlop={6}
+      style={[
+        styles.listAction,
+        variant === 'primary' && styles.listActionPrimary,
+        variant === 'danger' && styles.listActionDanger,
+      ]}
+    >
+      <MaterialCommunityIcons name={icon as any} size={17} color={color} />
     </TouchableOpacity>
   );
 }
@@ -50,7 +61,7 @@ export function StepSetsPanel({
   const handleSave = async () => {
     const trimmedName = stepSetName.trim();
     if (!trimmedName) {
-      Alert.alert('Name required', 'Please enter a name for this step set.');
+      appAlert('Name required', 'Please enter a name for this step set.');
       return;
     }
 
@@ -59,9 +70,9 @@ export function StepSetsPanel({
       await onSave(trimmedName);
       setStepSetName('');
       setSaveDialogVisible(false);
-      Alert.alert('Saved', `"${trimmedName}" has been saved.`);
+      appAlert('Saved', `"${trimmedName}" has been saved.`);
     } catch (error) {
-      Alert.alert('Save failed', 'Could not save this step set.');
+      appAlert('Save failed', 'Could not save this step set.');
       console.error(error);
     } finally {
       setIsSaving(false);
@@ -75,13 +86,13 @@ export function StepSetsPanel({
         title: `Share ${stepSet.name}`,
       });
     } catch (error) {
-      Alert.alert('Share failed', 'Could not open the share sheet.');
+      appAlert('Share failed', 'Could not open the share sheet.');
       console.error(error);
     }
   };
 
   const handleDelete = (stepSet: StepSet) => {
-    Alert.alert(
+    appAlert(
       'Delete step set',
       `Delete "${stepSet.name}"?`,
       [
@@ -93,7 +104,7 @@ export function StepSetsPanel({
             try {
               await onDelete(stepSet.id);
             } catch (error) {
-              Alert.alert('Delete failed', 'Could not delete this step set.');
+              appAlert('Delete failed', 'Could not delete this step set.');
               console.error(error);
             }
           },
@@ -109,7 +120,7 @@ export function StepSetsPanel({
       const imported = decodeSharedStepSet(clipboardText);
 
       if (!imported) {
-        Alert.alert(
+        appAlert(
           'Import failed',
           'Clipboard does not contain a valid badminton step set link.'
         );
@@ -117,10 +128,10 @@ export function StepSetsPanel({
       }
 
       await onImport(imported);
-      Alert.alert('Imported', `"${imported.name}" has been imported and loaded.`);
+      appAlert('Imported', `"${imported.name}" has been imported and loaded.`);
       onClose();
     } catch (error) {
-      Alert.alert('Import failed', 'Could not import from clipboard.');
+      appAlert('Import failed', 'Could not import from clipboard.');
       console.error(error);
     } finally {
       setIsImporting(false);
@@ -145,11 +156,11 @@ export function StepSetsPanel({
               <View>
                 <Text style={styles.headerTitle}>Drills</Text>
                 <Text style={styles.headerSubtitle}>
-                  Current sequence: {currentStepCount} step{currentStepCount === 1 ? '' : 's'}
+                  Current sequence · {currentStepCount} step{currentStepCount === 1 ? '' : 's'}
                 </Text>
               </View>
               <TouchableOpacity onPress={onClose} hitSlop={8} style={styles.closeButton}>
-                <MaterialCommunityIcons name="close" size={20} color={palette.textSecondary} />
+                <MaterialCommunityIcons name="close" size={18} color={palette.textPrimary} />
               </TouchableOpacity>
             </View>
 
@@ -159,7 +170,7 @@ export function StepSetsPanel({
                 onPress={() => setSaveDialogVisible(true)}
                 disabled={!canSave}
               >
-                <MaterialCommunityIcons name="content-save-outline" size={18} color={palette.onAccent} />
+                <MaterialCommunityIcons name="tray-arrow-down" size={18} color={palette.onAccent} />
                 <Text style={styles.primaryActionText}>Save current steps</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -167,7 +178,7 @@ export function StepSetsPanel({
                 onPress={handleImportFromClipboard}
                 disabled={isImporting}
               >
-                <MaterialCommunityIcons name="clipboard-arrow-down-outline" size={18} color={palette.accent} />
+                <MaterialCommunityIcons name="clipboard-arrow-down-outline" size={18} color={palette.textPrimary} />
                 <Text style={styles.secondaryActionText}>
                   {isImporting ? 'Importing…' : 'Import from clipboard'}
                 </Text>
@@ -178,12 +189,9 @@ export function StepSetsPanel({
 
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
               {stepSets.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <MaterialCommunityIcons name="clipboard-text-outline" size={34} color={palette.textMuted} />
-                  <Text style={styles.emptyText}>
-                    No saved drills yet.{'\n'}Drag markers to build steps, then save them here.
-                  </Text>
-                </View>
+                <Text style={styles.emptyText}>
+                  No saved drills yet — build steps, then save them here.
+                </Text>
               ) : (
                 stepSets.map((stepSet) => (
                   <View key={stepSet.id} style={styles.listItem}>
@@ -196,14 +204,14 @@ export function StepSetsPanel({
                     <View style={styles.itemActions}>
                       <ListAction
                         icon="play"
-                        color={palette.accent}
+                        variant="primary"
                         onPress={() => {
                           onLoad(stepSet);
                           onClose();
                         }}
                       />
                       <ListAction icon="share-variant" onPress={() => handleShare(stepSet)} />
-                      <ListAction icon="trash-can-outline" color={palette.danger} onPress={() => handleDelete(stepSet)} />
+                      <ListAction icon="trash-can-outline" variant="danger" onPress={() => handleDelete(stepSet)} />
                     </View>
                   </View>
                 ))
@@ -272,19 +280,22 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: palette.hairline,
+    borderTopWidth: 1,
+    borderColor: palette.surfaceBorder,
     paddingBottom: spacing.xl,
-    ...shadows.floating,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -18 },
+    shadowOpacity: 0.55,
+    shadowRadius: 25,
+    elevation: 16,
   },
   grabHandle: {
     alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: palette.hairlineStrong,
-    marginTop: spacing.md,
+    width: 38,
+    height: 4.5,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    marginTop: 10,
   },
   header: {
     flexDirection: 'row',
@@ -295,13 +306,13 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    ...sora('600'),
+    fontSize: 19,
     color: palette.textPrimary,
-    letterSpacing: 0.2,
   },
   headerSubtitle: {
-    fontSize: 12,
+    ...sora('400'),
+    fontSize: 11.5,
     color: palette.textSecondary,
     marginTop: 2,
   },
@@ -309,7 +320,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: palette.surfaceRaised,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -317,49 +328,48 @@ const styles = StyleSheet.create({
   },
   actions: {
     paddingHorizontal: spacing.xl,
-    gap: spacing.sm,
+    gap: 10,
   },
   primaryAction: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
+    height: 50,
     backgroundColor: palette.accent,
-    borderRadius: radii.pill,
-    paddingVertical: 13,
+    borderRadius: radii.md,
     paddingHorizontal: spacing.xl,
+    ...shadows.amberGlow,
   },
   primaryActionText: {
+    ...sora('700'),
     color: palette.onAccent,
-    fontWeight: '700',
     fontSize: 14,
-    letterSpacing: 0.3,
   },
   secondaryAction: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    backgroundColor: palette.accentSoft,
+    height: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(45, 212, 191, 0.35)',
-    borderRadius: radii.pill,
-    paddingVertical: 12,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderRadius: radii.md,
     paddingHorizontal: spacing.xl,
   },
   secondaryActionText: {
-    color: palette.accent,
-    fontWeight: '600',
+    ...sora('600'),
+    color: palette.textPrimary,
     fontSize: 14,
-    letterSpacing: 0.3,
   },
   actionDisabled: {
     opacity: 0.45,
   },
   listLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
+    ...sora('700'),
+    fontSize: 10,
+    letterSpacing: 1.6,
     textTransform: 'uppercase',
     color: palette.textMuted,
     marginTop: spacing.xl,
@@ -367,81 +377,85 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   list: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
   },
   listContent: {
-    gap: spacing.sm,
+    gap: 6,
     paddingBottom: spacing.sm,
   },
   listItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: palette.surfaceRaised,
+    backgroundColor: palette.card,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: palette.hairline,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    borderColor: palette.cardBorder,
+    paddingVertical: 11,
+    paddingHorizontal: spacing.md,
   },
   listItemInfo: {
     flex: 1,
     marginRight: spacing.md,
   },
   listItemTitle: {
+    ...sora('600'),
     color: palette.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
   },
   listItemMeta: {
-    color: palette.textSecondary,
-    fontSize: 12,
+    ...sora('400'),
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontSize: 11.5,
     marginTop: 2,
   },
   itemActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   listAction: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: palette.surfaceSunken,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
     borderWidth: 1,
-    borderColor: palette.hairline,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyState: {
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.xxl,
+  listActionPrimary: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+  },
+  listActionDanger: {
+    backgroundColor: 'rgba(255, 116, 85, 0.14)',
+    borderColor: 'rgba(255, 116, 85, 0.40)',
   },
   emptyText: {
+    ...sora('400'),
     color: palette.textSecondary,
-    fontSize: 13,
-    lineHeight: 20,
-    textAlign: 'center',
+    fontSize: 12.5,
+    paddingVertical: spacing.md,
   },
   dialogOverlay: {
     flex: 1,
-    backgroundColor: palette.overlay,
+    backgroundColor: palette.overlayStrong,
     justifyContent: 'center',
     padding: spacing.xl,
   },
   dialogCard: {
     width: '100%',
-    backgroundColor: palette.surfaceRaised,
+    backgroundColor: palette.dialog,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: palette.hairline,
+    borderColor: palette.dialogBorder,
     padding: spacing.xl,
     ...shadows.floating,
   },
   dialogTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    ...sora('600'),
+    fontSize: 16.5,
     color: palette.textPrimary,
   },
   nameInput: {
@@ -460,8 +474,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   dialogCancelText: {
+    ...sora('600'),
     color: palette.textSecondary,
-    fontWeight: '600',
     fontSize: 14,
   },
 });

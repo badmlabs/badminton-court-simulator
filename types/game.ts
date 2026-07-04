@@ -11,4 +11,6 @@ export interface TeamPositions {
 export interface CourtDimensions {
   width: number;
   height: number;
-} 
+  /** Rect the painted court lines occupy on screen (court fills the screen). */
+  linesRect?: { x: number; y: number; width: number; height: number };
+}

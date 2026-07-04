@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { palette, radii } from '../constants/theme';
+import { palette, sora } from '../constants/theme';
 
 interface IconButtonProps {
   icon: string;
@@ -17,14 +17,10 @@ export function IconButton({
   onPress,
   disabled = false,
   active = false,
-  size = 22,
+  size = 20,
   label,
 }: IconButtonProps) {
-  const iconColor = active
-    ? palette.onAccent
-    : disabled
-      ? palette.textMuted
-      : palette.textSecondary;
+  const iconColor = active ? palette.onAccent : 'rgba(255, 255, 255, 0.85)';
 
   return (
     <Pressable
@@ -34,20 +30,13 @@ export function IconButton({
       style={({ pressed }) => [
         styles.button,
         active && styles.activeButton,
-        pressed && !disabled && styles.pressedButton,
+        pressed && !disabled && !active && styles.pressedButton,
         disabled && styles.disabledButton,
       ]}
     >
       <MaterialCommunityIcons name={icon as any} size={size} color={iconColor} />
       {label ? (
-        <Text
-          style={[
-            styles.label,
-            active && styles.activeLabel,
-            disabled && styles.disabledLabel,
-          ]}
-          numberOfLines={1}
-        >
+        <Text style={[styles.label, active && styles.activeLabel]} numberOfLines={1}>
           {label}
         </Text>
       ) : null}
@@ -57,39 +46,33 @@ export function IconButton({
 
 const styles = StyleSheet.create({
   button: {
-    minWidth: 44,
-    height: 52,
+    minWidth: 46,
+    paddingVertical: 5,
     paddingHorizontal: 4,
-    borderRadius: radii.md,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 3,
     backgroundColor: 'transparent',
   },
   activeButton: {
+    minWidth: 50,
     backgroundColor: palette.accent,
-    shadowColor: palette.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
   },
   pressedButton: {
-    backgroundColor: 'rgba(148, 163, 184, 0.14)',
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
   },
   disabledButton: {
-    opacity: 0.45,
+    opacity: 0.4,
   },
   label: {
-    fontSize: 10,
-    fontWeight: '600',
+    ...sora('600'),
+    fontSize: 9,
     letterSpacing: 0.2,
-    color: palette.textSecondary,
+    color: 'rgba(255, 255, 255, 0.65)',
   },
   activeLabel: {
+    ...sora('700'),
     color: palette.onAccent,
-  },
-  disabledLabel: {
-    color: palette.textMuted,
   },
 });

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Dimensions, Alert, Text, Pressable } from 'react-native';
+import { View, StyleSheet, Dimensions, Text, Pressable, LayoutChangeEvent } from 'react-native';
+import { appAlert } from '../utils/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
@@ -14,10 +15,12 @@ import { StepSetsPanel } from './StepSetsPanel';
 import { useMarkerCustomization } from '../context/MarkerCustomizationContext';
 import { createStepSet, decodeSharedStepSet } from '../utils/stepSharing';
 import { StepSet } from '../types/drill';
-import { palette, radii, shadows, spacing } from '../constants/theme';
+import { palette, radii, shadows, sora, spacing } from '../constants/theme';
 
-const HEADER_CONTENT_HEIGHT = 56;
-const DOCK_HEIGHT = 78;
+const HEADER_HEIGHT = 44;
+const DOCK_PADDING = 10;
+const LINES_SIDE_INSET = 30;
+const LINES_GAP = 16;
 
 // Module-level so remounts (e.g. via the +not-found redirect) never
 // re-import a URL that was already handled in this app session.
@@ -25,14 +28,58 @@ const consumedShareUrls = new Set<string>();
 
 export default function BadmintonCourt() {
   const insets = useSafeAreaInsets();
-  const screenWidth = Dimensions.get('window').width;
-  const screenHeight = Dimensions.get('window').height;
 
-  const headerTotal = insets.top + HEADER_CONTENT_HEIGHT;
-  const dockTotal = DOCK_HEIGHT + Math.max(insets.bottom, spacing.md) + spacing.md;
+  // Measured layout is the source of truth: Dimensions.get('window') does not
+  // reliably match the rendered container on Android (status/nav bar handling
+  // varies per device), which made the court lines run under the dock.
+  const [rootSize, setRootSize] = useState<{ width: number; height: number } | null>(null);
+  const [courtArea, setCourtArea] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
-  const courtWidth = screenWidth - spacing.md * 2;
-  const courtHeight = screenHeight - headerTotal - dockTotal - spacing.md * 2;
+  const headerTop = insets.top + spacing.sm;
+  const dockBottom = Math.max(insets.bottom, 14);
+
+  const screenWidth = rootSize?.width ?? Dimensions.get('window').width;
+  const screenHeight = rootSize?.height ?? Dimensions.get('window').height;
+
+  // Pre-measure estimate for the first frame only.
+  const estimatedDockHeight = DOCK_PADDING * 2 + 46;
+  const area = courtArea ?? {
+    x: 0,
+    y: headerTop + HEADER_HEIGHT,
+    width: screenWidth,
+    height:
+      screenHeight - (headerTop + HEADER_HEIGHT) - (dockBottom + estimatedDockHeight),
+  };
+
+  // The painted lines sit inset from the edges; the green mat fills the screen.
+  const linesRect = {
+    x: LINES_SIDE_INSET,
+    y: area.y + LINES_GAP,
+    width: area.width - LINES_SIDE_INSET * 2,
+    height: area.height - LINES_GAP * 2,
+  };
+  const courtDimensions = { width: screenWidth, height: screenHeight, linesRect };
+
+  const onRootLayout = (event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setRootSize((prev) =>
+      prev && Math.abs(prev.width - width) < 1 && Math.abs(prev.height - height) < 1
+        ? prev
+        : { width, height }
+    );
+  };
+
+  const onCourtAreaLayout = (event: LayoutChangeEvent) => {
+    const { x, y, width, height } = event.nativeEvent.layout;
+    setCourtArea((prev) =>
+      prev &&
+      Math.abs(prev.y - y) < 1 &&
+      Math.abs(prev.width - width) < 1 &&
+      Math.abs(prev.height - height) < 1
+        ? prev
+        : { x, y, width, height }
+    );
+  };
 
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isStepSetsVisible, setIsStepSetsVisible] = useState(false);
@@ -60,21 +107,33 @@ export default function BadmintonCourt() {
     getStepsSnapshot,
     loadNormalizedSteps,
     stepCount,
-  } = useCourtPositions({ width: courtWidth, height: courtHeight });
+  } = useCourtPositions(courtDimensions);
+
+  // Once the real court area is measured, re-seed the default positions —
+  // but only while the board is pristine (nothing moved, no history).
+  const measuredKey = courtArea
+    ? `${Math.round(courtArea.y)}:${Math.round(courtArea.width)}:${Math.round(courtArea.height)}`
+    : '';
+  useEffect(() => {
+    if (measuredKey && !canUndo && !canRedo) {
+      resetPositions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measuredKey]);
 
   const applyImport = useCallback(async (stepSet: StepSet, replaceId?: string) => {
     const saved = replaceId
       ? await replaceStepSet(replaceId, stepSet)
       : await importStepSet(stepSet);
     loadNormalizedSteps(saved.steps, saved.isDoubles);
-    Alert.alert('Imported', `"${saved.name}" has been imported and loaded.`);
+    appAlert('Imported', `"${saved.name}" has been imported and loaded.`);
   }, [importStepSet, loadNormalizedSteps, replaceStepSet]);
 
   const handleImportStepSet = useCallback(async (stepSet: StepSet) => {
     const existing = stepSets.find((item) => item.name === stepSet.name);
 
     if (existing) {
-      Alert.alert(
+      appAlert(
         'Drill already exists',
         `A drill named "${stepSet.name}" is already saved. Replace it?`,
         [
@@ -122,148 +181,131 @@ export default function BadmintonCourt() {
   const handleSaveStepSet = useCallback(async (name: string) => {
     const steps = getStepsSnapshot();
     const stepSet = createStepSet(name, isDoubles, steps, {
-      width: courtWidth,
-      height: courtHeight,
+      width: screenWidth,
+      height: screenHeight,
     });
     await saveStepSet(stepSet);
-  }, [courtHeight, courtWidth, getStepsSnapshot, isDoubles, saveStepSet]);
+  }, [getStepsSnapshot, isDoubles, saveStepSet, screenHeight, screenWidth]);
 
   const handleLoadStepSet = useCallback((stepSet: StepSet) => {
     loadNormalizedSteps(stepSet.steps, stepSet.isDoubles);
   }, [loadNormalizedSteps]);
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top, height: headerTotal }]}>
-        <View style={styles.headerLeft}>
-          <View style={styles.logoBadge}>
-            <MaterialCommunityIcons name="badminton" size={20} color={palette.accent} />
-          </View>
-          <View>
-            <Text style={styles.headerTitle}>Court Simulator</Text>
-            <Text style={styles.headerSubtitle}>
-              {isDoubles ? 'Doubles' : 'Singles'} · Step {stepCount}
-            </Text>
-          </View>
-        </View>
+    <View style={styles.container} onLayout={onRootLayout}>
+      {/* Full-bleed court */}
+      <View style={StyleSheet.absoluteFill}>
+        <CourtSvg width={screenWidth} height={screenHeight} linesRect={linesRect} />
+      </View>
+
+      {/* Trails + markers (coordinates are screen coordinates) */}
+      {showPlayerTrails && playerPositions.team1.map((pos, index) => (
+        ghostPositions?.team1[index] && (
+          <PositionTrail
+            key={`trail-team1-${index}`}
+            currentPosition={pos}
+            ghostPosition={ghostPositions.team1[index]!}
+            markerSize={customizations[index === 0 ? 'P1' : 'P2'].size}
+          />
+        )
+      ))}
+      {showPlayerTrails && playerPositions.team2.map((pos, index) => (
+        ghostPositions?.team2[index] && (
+          <PositionTrail
+            key={`trail-team2-${index}`}
+            currentPosition={pos}
+            ghostPosition={ghostPositions.team2[index]!}
+            markerSize={customizations[index === 0 ? 'P3' : 'P4'].size}
+          />
+        )
+      ))}
+      {showShuttleTrail && shuttlePosition && ghostPositions?.shuttle && (
+        <PositionTrail
+          currentPosition={shuttlePosition}
+          ghostPosition={ghostPositions.shuttle}
+          markerSize={customizations.Shuttle.size}
+        />
+      )}
+
+      {playerPositions.team1.map((pos, index) => (
+        <PlayerMarker
+          key={`team1-${index}`}
+          position={pos}
+          color={customizations[index === 0 ? 'P1' : 'P2'].color}
+          size={customizations[index === 0 ? 'P1' : 'P2'].size}
+          isLeftHanded={customizations[index === 0 ? 'P1' : 'P2'].isLeftHanded}
+          icon={customizations[index === 0 ? 'P1' : 'P2'].icon}
+          iconType={customizations[index === 0 ? 'P1' : 'P2'].iconType}
+          onPositionChange={(newPos) => updatePlayerPosition('team1', index, newPos)}
+          onPositionStart={(newPos) => updatePlayerPosition('team1', index, newPos, true)}
+          onPositionChangeComplete={handlePositionChangeComplete}
+          onColorChange={(color) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { color })}
+          onSizeChange={(size) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { size })}
+          onIconChange={(icon) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { icon })}
+        />
+      ))}
+      {playerPositions.team2.map((pos, index) => (
+        <PlayerMarker
+          key={`team2-${index}`}
+          position={pos}
+          color={customizations[index === 0 ? 'P3' : 'P4'].color}
+          size={customizations[index === 0 ? 'P3' : 'P4'].size}
+          isLeftHanded={customizations[index === 0 ? 'P3' : 'P4'].isLeftHanded}
+          icon={customizations[index === 0 ? 'P3' : 'P4'].icon}
+          iconType={customizations[index === 0 ? 'P3' : 'P4'].iconType}
+          onPositionChange={(newPos) => updatePlayerPosition('team2', index, newPos)}
+          onPositionStart={(newPos) => updatePlayerPosition('team2', index, newPos, true)}
+          onPositionChangeComplete={handlePositionChangeComplete}
+          onColorChange={(color) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { color })}
+          onSizeChange={(size) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { size })}
+          onIconChange={(icon) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { icon })}
+        />
+      ))}
+
+      <PlayerMarker
+        position={shuttlePosition}
+        color={customizations.Shuttle.color}
+        size={customizations.Shuttle.size}
+        icon={customizations.Shuttle.icon}
+        iconType={customizations.Shuttle.iconType}
+        onPositionChange={updateShuttlePosition}
+        onPositionStart={(newPos) => updateShuttlePosition(newPos, true)}
+        onPositionChangeComplete={handlePositionChangeComplete}
+        onColorChange={(color) => updateMarkerCustomization('Shuttle', { color })}
+        onSizeChange={(size) => updateMarkerCustomization('Shuttle', { size })}
+        onIconChange={(icon) => updateMarkerCustomization('Shuttle', { icon })}
+      />
+
+      {/* Floating header: mode pill + customize button */}
+      <View style={[styles.header, { marginTop: headerTop }]} pointerEvents="box-none">
+        <Pressable
+          onPress={() => toggleGameMode(!isDoubles)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.modePill, pressed && styles.glassPressed]}
+        >
+          <MaterialCommunityIcons name="badminton" size={18} color={palette.textPrimary} />
+          <Text style={styles.modePillLabel}>
+            {isDoubles ? 'Doubles' : 'Singles'} · Step {stepCount}
+          </Text>
+          <MaterialCommunityIcons name="chevron-down" size={16} color={palette.textSecondary} />
+        </Pressable>
         <Pressable
           onPress={() => setIsMenuVisible(true)}
           hitSlop={8}
-          style={({ pressed }) => [styles.headerAction, pressed && styles.headerActionPressed]}
+          style={({ pressed }) => [styles.headerAction, pressed && styles.glassPressed]}
         >
-          <MaterialCommunityIcons name="tune-variant" size={22} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="tune-variant" size={20} color={palette.textPrimary} />
         </Pressable>
       </View>
 
-      {/* Court */}
-      <View style={[styles.courtWrapper, { marginBottom: dockTotal }]}>
-        <View style={[styles.courtContainer, { width: courtWidth, height: courtHeight }]}>
-          <CourtSvg width={courtWidth} height={courtHeight} />
+      {/* Court area spacer between header and dock — its measured rect hosts the lines */}
+      <View style={styles.courtArea} pointerEvents="none" onLayout={onCourtAreaLayout} />
 
-          {showPlayerTrails && playerPositions.team1.map((pos, index) => (
-            ghostPositions?.team1[index] && (
-              <PositionTrail
-                key={`trail-team1-${index}`}
-                currentPosition={pos}
-                ghostPosition={ghostPositions.team1[index]!}
-                color={customizations[index === 0 ? 'P1' : 'P2'].color}
-              />
-            )
-          ))}
-          {showPlayerTrails && playerPositions.team2.map((pos, index) => (
-            ghostPositions?.team2[index] && (
-              <PositionTrail
-                key={`trail-team2-${index}`}
-                currentPosition={pos}
-                ghostPosition={ghostPositions.team2[index]!}
-                color={customizations[index === 0 ? 'P3' : 'P4'].color}
-              />
-            )
-          ))}
-          {showShuttleTrail && shuttlePosition && ghostPositions?.shuttle && (
-            <PositionTrail
-              currentPosition={shuttlePosition}
-              ghostPosition={ghostPositions.shuttle}
-              color={customizations.Shuttle.color}
-            />
-          )}
-
-          {playerPositions.team1.map((pos, index) => (
-            <PlayerMarker 
-              key={`team1-${index}`}
-              position={pos}
-              color={customizations[index === 0 ? 'P1' : 'P2'].color}
-              size={customizations[index === 0 ? 'P1' : 'P2'].size}
-              isLeftHanded={customizations[index === 0 ? 'P1' : 'P2'].isLeftHanded}
-              icon={customizations[index === 0 ? 'P1' : 'P2'].icon}
-              iconType={customizations[index === 0 ? 'P1' : 'P2'].iconType}
-              onPositionChange={(newPos) => updatePlayerPosition('team1', index, newPos)}
-              onPositionStart={(newPos) => updatePlayerPosition('team1', index, newPos, true)}
-              onPositionChangeComplete={handlePositionChangeComplete}
-              onColorChange={(color) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { color })}
-              onSizeChange={(size) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { size })}
-              onIconChange={(icon) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { icon })}
-            />
-          ))}
-          {playerPositions.team2.map((pos, index) => (
-            <PlayerMarker 
-              key={`team2-${index}`}
-              position={pos}
-              color={customizations[index === 0 ? 'P3' : 'P4'].color}
-              size={customizations[index === 0 ? 'P3' : 'P4'].size}
-              isLeftHanded={customizations[index === 0 ? 'P3' : 'P4'].isLeftHanded}
-              icon={customizations[index === 0 ? 'P3' : 'P4'].icon}
-              iconType={customizations[index === 0 ? 'P3' : 'P4'].iconType}
-              onPositionChange={(newPos) => updatePlayerPosition('team2', index, newPos)}
-              onPositionStart={(newPos) => updatePlayerPosition('team2', index, newPos, true)}
-              onPositionChangeComplete={handlePositionChangeComplete}
-              onColorChange={(color) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { color })}
-              onSizeChange={(size) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { size })}
-              onIconChange={(icon) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { icon })}
-            />
-          ))}
-
-          <PlayerMarker
-            position={shuttlePosition}
-            color={customizations.Shuttle.color}
-            size={customizations.Shuttle.size}
-            icon={customizations.Shuttle.icon}
-            iconType={customizations.Shuttle.iconType}
-            onPositionChange={updateShuttlePosition}
-            onPositionStart={(newPos) => updateShuttlePosition(newPos, true)}
-            onPositionChangeComplete={handlePositionChangeComplete}
-            onColorChange={(color) => updateMarkerCustomization('Shuttle', { color })}
-            onSizeChange={(size) => updateMarkerCustomization('Shuttle', { size })}
-            onIconChange={(icon) => updateMarkerCustomization('Shuttle', { icon })}
-          />
-        </View>
-      </View>
-
-      {/* Floating toolbar dock */}
-      <View
-        style={[
-          styles.dock,
-          {
-            height: DOCK_HEIGHT,
-            bottom: Math.max(insets.bottom, spacing.md),
-          },
-        ]}
-      >
+      {/* Floating bottom dock */}
+      <View style={[styles.dock, { marginBottom: dockBottom }]}>
         <IconButton icon="restart" label="Reset" onPress={resetPositions} />
-        <IconButton
-          icon={isDoubles ? 'account-group' : 'account'}
-          label={isDoubles ? 'Doubles' : 'Singles'}
-          onPress={() => toggleGameMode(!isDoubles)}
-        />
-
-        <View style={styles.dockDivider} />
-
         <IconButton icon="undo-variant" label="Undo" onPress={undo} disabled={!canUndo} />
         <IconButton icon="redo-variant" label="Redo" onPress={redo} disabled={!canRedo} />
-
-        <View style={styles.dockDivider} />
-
         <IconButton
           icon="shoe-print"
           label="Trails"
@@ -276,9 +318,6 @@ export default function BadmintonCourt() {
           onPress={toggleShuttleTrail}
           active={showShuttleTrail}
         />
-
-        <View style={styles.dockDivider} />
-
         <IconButton
           icon="playlist-play"
           label="Drills"
@@ -312,81 +351,55 @@ const styles = StyleSheet.create({
     backgroundColor: palette.bg,
   },
   header: {
-    width: '100%',
+    marginHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
   },
-  headerLeft: {
+  courtArea: {
+    flex: 1,
+  },
+  modePill: {
+    height: HEADER_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-  },
-  logoBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: radii.sm,
-    backgroundColor: palette.accentSoft,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.pill,
+    backgroundColor: palette.glassPill,
     borderWidth: 1,
-    borderColor: 'rgba(45, 212, 191, 0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: palette.glassPillBorder,
+    ...shadows.card,
   },
-  headerTitle: {
+  modePillLabel: {
+    ...sora('600'),
+    fontSize: 13,
     color: palette.textPrimary,
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  headerSubtitle: {
-    color: palette.textSecondary,
-    fontSize: 12,
-    fontWeight: '500',
-    marginTop: 1,
   },
   headerAction: {
-    width: 40,
-    height: 40,
-    borderRadius: radii.sm,
-    backgroundColor: palette.surface,
+    width: HEADER_HEIGHT,
+    height: HEADER_HEIGHT,
+    borderRadius: radii.pill,
+    backgroundColor: palette.glassPill,
     borderWidth: 1,
-    borderColor: palette.hairline,
+    borderColor: palette.glassPillBorder,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadows.card,
   },
-  headerActionPressed: {
-    backgroundColor: palette.surfaceRaised,
-  },
-  courtWrapper: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    paddingVertical: spacing.md,
-  },
-  courtContainer: {
-    position: 'relative',
-    borderRadius: 24,
-    ...shadows.floating,
+  glassPressed: {
+    backgroundColor: 'rgba(6, 26, 18, 0.62)',
   },
   dock: {
-    position: 'absolute',
-    left: spacing.md,
-    right: spacing.md,
+    marginHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-evenly',
-    paddingHorizontal: spacing.xs,
-    backgroundColor: palette.surface,
-    borderRadius: radii.xl,
+    justifyContent: 'space-between',
+    padding: DOCK_PADDING,
+    backgroundColor: palette.glassPill,
+    borderRadius: radii.dock,
     borderWidth: 1,
-    borderColor: palette.hairline,
+    borderColor: palette.glassPillBorder,
     ...shadows.floating,
-  },
-  dockDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: palette.hairline,
   },
 });
