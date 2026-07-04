@@ -133,6 +133,7 @@ export default function BadmintonCourt() {
     const saved = replaceId
       ? await replaceStepSet(replaceId, stepSet)
       : await importStepSet(stepSet);
+    if (!saved) return; // drill limit reached; the hook already alerted
     loadNormalizedSteps(saved.steps, saved.isDoubles);
     appAlert('Imported', `"${saved.name}" has been imported and loaded.`);
   }, [importStepSet, loadNormalizedSteps, replaceStepSet]);
@@ -193,7 +194,7 @@ export default function BadmintonCourt() {
       width: screenWidth,
       height: screenHeight,
     });
-    await saveStepSet(stepSet);
+    return (await saveStepSet(stepSet)) !== null;
   }, [getStepsSnapshot, isDoubles, saveStepSet, screenHeight, screenWidth]);
 
   const handleLoadStepSet = useCallback((stepSet: StepSet) => {
