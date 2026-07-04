@@ -31,8 +31,6 @@ export const THETA_DEFAULT = 48;
 export const THETA_MIN = 24;
 export const THETA_MAX = 60;
 export const PHI_MAX = 18;
-export const ZOOM_MIN = 0.8;
-export const ZOOM_MAX = 1.4;
 
 export const NET_POST_H = 155; // BWF net height at the posts, cm
 

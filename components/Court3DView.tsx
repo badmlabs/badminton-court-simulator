@@ -35,8 +35,6 @@ import {
   THETA_DEFAULT,
   THETA_MAX,
   THETA_MIN,
-  ZOOM_MAX,
-  ZOOM_MIN,
 } from '../utils/court3d';
 
 export interface Pin3D extends CourtPoint {
@@ -91,7 +89,7 @@ export function Court3DView({
   hintBottom,
 }: Court3DViewProps) {
   const stepIndex = steps.length - 1;
-  const [cam, setCam] = useState({ thetaDeg: THETA_DEFAULT, phiDeg: 0, zoom: 1 });
+  const [cam, setCam] = useState({ thetaDeg: THETA_DEFAULT, phiDeg: 0 });
   // tp starts landed (1) so entering 3D shows the board exactly where 2D left
   // it; it rewinds to 0 (replaying the flight in) only when the step changes.
   const [tp, setTp] = useState(1);
@@ -138,52 +136,37 @@ export function Court3DView({
     return () => cancelAnimationFrame(raf);
   }, [playing, stepIndex, shot]);
 
-  // Orbit drag / pinch zoom. Raw responder state lives in a ref; deltas apply
-  // to cam state per move event.
-  const touchRef = useRef<{ single: [number, number] | null; pinchD: number | null }>({
-    single: null,
-    pinchD: null,
-  });
+  // One-finger orbit; deltas apply to cam state per move event. Yaw is
+  // negated so the near court — the part under the finger — follows the drag.
+  const touchRef = useRef<[number, number] | null>(null);
 
   const readTouches = (e: GestureResponderEvent) => {
     const touches = e.nativeEvent.touches;
-    const t = touchRef.current;
-    if (touches.length >= 2) {
-      const d = Math.hypot(
-        touches[0].pageX - touches[1].pageX,
-        touches[0].pageY - touches[1].pageY
-      );
-      if (t.pinchD != null && t.pinchD > 4) {
-        const r = d / t.pinchD;
-        setCam((c) => ({ ...c, zoom: clamp(c.zoom * r, ZOOM_MIN, ZOOM_MAX) }));
-      }
-      t.pinchD = d;
-      t.single = null;
-    } else if (touches.length === 1) {
-      const px = touches[0].pageX;
-      const py = touches[0].pageY;
-      if (t.single) {
-        const dx = px - t.single[0];
-        const dy = py - t.single[1];
-        setCam((c) => ({
-          ...c,
-          thetaDeg: clamp(c.thetaDeg - dy * 0.22, THETA_MIN, THETA_MAX),
-          phiDeg: clamp(c.phiDeg + dx * 0.12, -PHI_MAX, PHI_MAX),
-        }));
-      }
-      t.single = [px, py];
-      t.pinchD = null;
+    if (touches.length !== 1) {
+      touchRef.current = null; // extra fingers park the gesture
+      return;
     }
+    const px = touches[0].pageX;
+    const py = touches[0].pageY;
+    const prev = touchRef.current;
+    if (prev) {
+      const dx = px - prev[0];
+      const dy = py - prev[1];
+      setCam((c) => ({
+        thetaDeg: clamp(c.thetaDeg - dy * 0.22, THETA_MIN, THETA_MAX),
+        phiDeg: clamp(c.phiDeg - dx * 0.12, -PHI_MAX, PHI_MAX),
+      }));
+    }
+    touchRef.current = [px, py];
   };
 
   const clearTouches = () => {
-    touchRef.current.single = null;
-    touchRef.current.pinchD = null;
+    touchRef.current = null;
   };
 
   if (!steps.length) return null;
 
-  const project = makeProjector(linesRect, { ...cam, b });
+  const project = makeProjector(linesRect, { ...cam, zoom: 1, b });
   const lineWidth = Math.max(1.5, LINE_UNITS * (linesRect.width / COURT_W));
   const tc = Math.min(1, tp);
 
@@ -433,7 +416,7 @@ export function Court3DView({
         <View pointerEvents="none" style={[styles.hintWrap, { bottom: hintBottom }]}>
           <View style={styles.hintPill}>
             <MaterialCommunityIcons name="rotate-3d" size={12} color="rgba(255,255,255,0.85)" />
-            <Text style={styles.hintText}>drag to orbit · pinch to zoom</Text>
+            <Text style={styles.hintText}>drag to rotate and tilt</Text>
           </View>
         </View>
       )}
