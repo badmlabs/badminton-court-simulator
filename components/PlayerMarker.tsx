@@ -23,6 +23,10 @@ interface PlayerMarkerProps {
   iconType?: 'icon' | 'text' | 'photo';
   /** Amber ring: this piece is part of the armed Together step. */
   linked?: boolean;
+  /** Duration of the glide between steps (ms); user-tunable in Customize. */
+  glideMs?: number;
+  /** Playback: the piece ignores touches entirely. */
+  locked?: boolean;
   onPositionChange?: (newPosition: { x: number; y: number }) => void;
   onPositionStart?: (newPosition: { x: number; y: number }) => void;
   onPositionChangeComplete?: () => void;
@@ -46,6 +50,8 @@ export function PlayerMarker({
   icon = 'account',
   iconType = 'icon',
   linked = false,
+  glideMs = 260,
+  locked = false,
   onPositionChange,
   onPositionStart,
   onPositionChangeComplete,
@@ -73,12 +79,12 @@ export function PlayerMarker({
     } else {
       Animated.timing(translate, {
         toValue: { x: targetX, y: targetY },
-        duration: 260,
+        duration: glideMs,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
     }
-  }, [isLifted, targetX, targetY, translate]);
+  }, [glideMs, isLifted, targetX, targetY, translate]);
 
   // Update internal markerSize when size prop changes
   useEffect(() => {
@@ -137,8 +143,8 @@ export function PlayerMarker({
             opacity: 1,
           },
         ]}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
+        onStartShouldSetResponder={() => !locked}
+        onMoveShouldSetResponder={() => !locked}
         onResponderGrant={(event: GestureResponderEvent) => {
           const touch = event.nativeEvent;
           setTouchOffset({

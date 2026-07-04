@@ -27,7 +27,7 @@ adb exec-out screencap -p > screen.png                # inspect UI state
 adb shell input tap X Y / input swipe X1 Y1 X2 Y2 600 # drive it (coords in px)
 ```
 
-Critical user flows to exercise: drag a marker (step count increments; a tap without a drag must NOT increment), undo/redo/reset (markers glide, ~260ms), Together (arm via dock, drag several pieces — amber rings + count badge, no step yet — tap Together again to commit ONE step; Cancel discards), singles/doubles switch (Customize panel), save/load/delete a drill, share link, deep-link import:
+Critical user flows to exercise: drag a marker (step count increments; a tap without a drag must NOT increment), undo/redo/reset (markers glide; speed set by the Customize "Step speed" slider), the first dock button (Reset when the stack is empty ↔ Clear when steps exist — Clear keeps positions, wipes the stack), Together (arm via dock, drag several pieces — amber rings + count badge, no step yet — tap Together again to commit ONE step; Cancel discards), drill playback (loading/importing a drill locks the pieces: name pill shows i/n + progress and toggles an info card, Back/Next walk steps, Play autoplays and loops with a ~3-beat hold at the end, Fork unlocks editing at the current step), singles/doubles switch (Customize panel), save/load/delete a drill, share link, deep-link import:
 
 ```bash
 adb shell am start -a android.intent.action.VIEW \

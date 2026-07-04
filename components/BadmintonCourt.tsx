@@ -16,7 +16,7 @@ import { drillStepsForCourt, VaultDrill } from '../data/vaultDrills';
 import { useVaultAccess } from '../hooks/useVaultAccess';
 import { useMarkerCustomization } from '../context/MarkerCustomizationContext';
 import { createStepSet, decodeSharedStepSet } from '../utils/stepSharing';
-import { StepSet } from '../types/drill';
+import { NormalizedStep, StepSet } from '../types/drill';
 import { palette, radii, shadows, sora, spacing } from '../constants/theme';
 
 const HEADER_HEIGHT = 44;
@@ -35,6 +35,60 @@ const consumedShareUrls = new Set<string>();
 const liveApplyImport: {
   current: ((stepSet: StepSet, replaceId?: string) => void) | null;
 } = { current: null };
+
+// Steps where more than one piece moved vs the previous step (Together steps).
+function countTogetherSteps(steps: NormalizedStep[]): number {
+  let count = 0;
+  for (let i = 1; i < steps.length; i++) {
+    const prev = steps[i - 1];
+    const step = steps[i];
+    let moved = 0;
+    (['team1', 'team2'] as const).forEach((team) =>
+      step.players[team].forEach((pos, j) => {
+        const was = prev.players[team][j];
+        if (was && (was.x !== pos.x || was.y !== pos.y)) moved++;
+      })
+    );
+    if (step.shuttle.x !== prev.shuttle.x || step.shuttle.y !== prev.shuttle.y) moved++;
+    if (moved > 1) count++;
+  }
+  return count;
+}
+
+interface LoadedDrillMeta {
+  name: string;
+  description?: string;
+  chips: string[];
+}
+
+const stepSetMeta = (stepSet: StepSet): LoadedDrillMeta => {
+  const together = countTogetherSteps(stepSet.steps);
+  return {
+    name: stepSet.name,
+    chips: [
+      `${stepSet.steps.length} steps`,
+      stepSet.isDoubles ? 'Doubles' : 'Singles',
+      ...(together > 0
+        ? [`${together} together ${together === 1 ? 'step' : 'steps'}`]
+        : []),
+      `Saved ${new Date(stepSet.createdAt).toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+      })}`,
+    ],
+  };
+};
+
+const vaultMeta = (drill: VaultDrill, steps: NormalizedStep[]): LoadedDrillMeta => ({
+  name: drill.name,
+  description: drill.description,
+  chips: [
+    `${steps.length} steps`,
+    drill.isDoubles ? 'Doubles' : 'Singles',
+    drill.category,
+    drill.difficulty,
+  ],
+});
 
 export default function BadmintonCourt() {
   const insets = useSafeAreaInsets();
@@ -94,6 +148,13 @@ export default function BadmintonCourt() {
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   // null = drill hub closed; otherwise the tab it opens on.
   const [drillHubTab, setDrillHubTab] = useState<DrillHubTab | null>(null);
+  // Glide duration between steps (ms); set from the Customize panel slider.
+  const [stepAnimationMs, setStepAnimationMs] = useState(260);
+  // Playback state for the loaded drill.
+  const [loadedDrill, setLoadedDrill] = useState<LoadedDrillMeta | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [lockBannerDismissed, setLockBannerDismissed] = useState(false);
   const { customizations, updateMarkerCustomization } = useMarkerCustomization();
   const vault = useVaultAccess();
   const { stepSets, saveStepSet, deleteStepSet, replaceStepSet, importStepSet } = useStepSets({
@@ -121,8 +182,12 @@ export default function BadmintonCourt() {
     toggleTogether,
     cancelTogether,
     togetherMoved,
+    isPlayback,
+    exitPlayback,
+    goToStart,
     toggleGameMode,
     resetPositions,
+    clearSteps,
     undo,
     redo,
     canUndo,
@@ -134,6 +199,7 @@ export default function BadmintonCourt() {
     getStepsSnapshot,
     loadNormalizedSteps,
     stepCount,
+    totalSteps,
   } = useCourtPositions(courtDimensions);
 
   const togetherCount = togetherMoved
@@ -146,20 +212,77 @@ export default function BadmintonCourt() {
     ? `${Math.round(courtArea.y)}:${Math.round(courtArea.width)}:${Math.round(courtArea.height)}`
     : '';
   useEffect(() => {
-    if (measuredKey && !canUndo && !canRedo) {
+    if (measuredKey && !canUndo && !canRedo && !isPlayback) {
       resetPositions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [measuredKey]);
+
+  // Autoplay: one step per tick, paced by the step-speed setting. At the last
+  // step, hold ~3 beats, then loop from the start.
+  const loopHoldRef = useRef(0);
+  useEffect(() => {
+    if (!isPlaying || !isPlayback) return;
+    const id = setInterval(() => {
+      if (canRedo) {
+        loopHoldRef.current = 0;
+        redo();
+      } else if (++loopHoldRef.current >= 3) {
+        loopHoldRef.current = 0;
+        goToStart();
+      }
+    }, stepAnimationMs + 700);
+    return () => clearInterval(id);
+  }, [canRedo, goToStart, isPlayback, isPlaying, redo, stepAnimationMs]);
+
+  const togglePlay = useCallback(() => {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    if (!canRedo) goToStart(); // at the end: replay from the top
+    loopHoldRef.current = 0;
+    setIsPlaying(true);
+  }, [canRedo, goToStart, isPlaying]);
+
+  const stepBack = useCallback(() => {
+    setIsPlaying(false);
+    undo();
+  }, [undo]);
+
+  const stepNext = useCallback(() => {
+    setIsPlaying(false);
+    redo();
+  }, [redo]);
+
+  // Fork: unlock the loaded drill for editing at the current step.
+  const handleFork = useCallback(() => {
+    setIsPlaying(false);
+    setInfoOpen(false);
+    setLoadedDrill(null);
+    exitPlayback();
+  }, [exitPlayback]);
+
+  const beginPlayback = useCallback((
+    steps: NormalizedStep[],
+    nextIsDoubles: boolean,
+    meta: LoadedDrillMeta
+  ) => {
+    loadNormalizedSteps(steps, nextIsDoubles);
+    setLoadedDrill(meta);
+    setIsPlaying(false);
+    setInfoOpen(false);
+    setLockBannerDismissed(false);
+  }, [loadNormalizedSteps]);
 
   const applyImport = useCallback(async (stepSet: StepSet, replaceId?: string) => {
     const saved = replaceId
       ? await replaceStepSet(replaceId, stepSet)
       : await importStepSet(stepSet);
     if (!saved) return; // drill limit reached; the hook already alerted
-    loadNormalizedSteps(saved.steps, saved.isDoubles);
+    beginPlayback(saved.steps, saved.isDoubles, stepSetMeta(saved));
     appAlert('Imported', `"${saved.name}" has been imported and loaded.`);
-  }, [importStepSet, loadNormalizedSteps, replaceStepSet]);
+  }, [beginPlayback, importStepSet, replaceStepSet]);
 
   useEffect(() => {
     liveApplyImport.current = applyImport;
@@ -221,13 +344,14 @@ export default function BadmintonCourt() {
   }, [getStepsSnapshot, isDoubles, saveStepSet, screenHeight, screenWidth]);
 
   const handleLoadStepSet = useCallback((stepSet: StepSet) => {
-    loadNormalizedSteps(stepSet.steps, stepSet.isDoubles);
-  }, [loadNormalizedSteps]);
+    beginPlayback(stepSet.steps, stepSet.isDoubles, stepSetMeta(stepSet));
+  }, [beginPlayback]);
 
   // Vault drills are authored in a fixed court frame; remap them onto the
   // measured lines rect so they land on the painted court of this device.
   const handleLoadVaultDrill = (drill: VaultDrill) => {
-    loadNormalizedSteps(drillStepsForCourt(drill.steps, courtDimensions), drill.isDoubles);
+    const steps = drillStepsForCourt(drill.steps, courtDimensions);
+    beginPlayback(steps, drill.isDoubles, vaultMeta(drill, steps));
   };
 
   // Saving a vault drill makes it a personal copy in My Drills: it goes
@@ -289,6 +413,8 @@ export default function BadmintonCourt() {
           icon={customizations[index === 0 ? 'P1' : 'P2'].icon}
           iconType={customizations[index === 0 ? 'P1' : 'P2'].iconType}
           linked={!!togetherMoved?.team1[index]}
+          glideMs={stepAnimationMs}
+          locked={isPlayback}
           onPositionChange={(newPos) => updatePlayerPosition('team1', index, newPos)}
           onPositionStart={(newPos) => updatePlayerPosition('team1', index, newPos, true)}
           onPositionChangeComplete={handlePositionChangeComplete}
@@ -307,6 +433,8 @@ export default function BadmintonCourt() {
           icon={customizations[index === 0 ? 'P3' : 'P4'].icon}
           iconType={customizations[index === 0 ? 'P3' : 'P4'].iconType}
           linked={!!togetherMoved?.team2[index]}
+          glideMs={stepAnimationMs}
+          locked={isPlayback}
           onPositionChange={(newPos) => updatePlayerPosition('team2', index, newPos)}
           onPositionStart={(newPos) => updatePlayerPosition('team2', index, newPos, true)}
           onPositionChangeComplete={handlePositionChangeComplete}
@@ -323,6 +451,8 @@ export default function BadmintonCourt() {
         icon={customizations.Shuttle.icon}
         iconType={customizations.Shuttle.iconType}
         linked={!!togetherMoved?.shuttle}
+        glideMs={stepAnimationMs}
+        locked={isPlayback}
         onPositionChange={updateShuttlePosition}
         onPositionStart={(newPos) => updateShuttlePosition(newPos, true)}
         onPositionChangeComplete={handlePositionChangeComplete}
@@ -331,14 +461,37 @@ export default function BadmintonCourt() {
         onIconChange={(icon) => updateMarkerCustomization('Shuttle', { icon })}
       />
 
-      {/* Floating header: mode status pill + customize button */}
+      {/* Floating header: mode/drill pill + customize button (stays Settings
+          in playback too; the banner ✕ is the only dismiss control) */}
       <View style={[styles.header, { marginTop: headerTop }]} pointerEvents="box-none">
-        <View style={styles.modePill}>
-          <MaterialCommunityIcons name="badminton" size={18} color={palette.textPrimary} />
-          <Text style={styles.modePillLabel}>
-            {isDoubles ? 'Doubles' : 'Singles'} · Step {stepCount}
-          </Text>
-        </View>
+        {isPlayback && loadedDrill ? (
+          <Pressable style={styles.namePill} onPress={() => setInfoOpen((open) => !open)}>
+            <MaterialCommunityIcons name="playlist-play" size={17} color={palette.textPrimary} />
+            <Text style={styles.namePillLabel} numberOfLines={1}>
+              {loadedDrill.name}
+            </Text>
+            <MaterialCommunityIcons
+              name={infoOpen ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={palette.textSecondary}
+            />
+            <Text style={[styles.namePillCount, isPlaying && { color: palette.accent }]}>
+              {stepCount}/{totalSteps}
+            </Text>
+            <View style={styles.namePillTrack}>
+              <View
+                style={[styles.namePillFill, { width: `${(stepCount / totalSteps) * 100}%` }]}
+              />
+            </View>
+          </Pressable>
+        ) : (
+          <View style={styles.modePill}>
+            <MaterialCommunityIcons name="badminton" size={18} color={palette.textPrimary} />
+            <Text style={styles.modePillLabel}>
+              {isDoubles ? 'Doubles' : 'Singles'} · Step {stepCount}
+            </Text>
+          </View>
+        )}
         <View style={styles.headerActions}>
           <Pressable
             onPress={() => setDrillHubTab('vault')}
@@ -362,6 +515,58 @@ export default function BadmintonCourt() {
         </View>
       </View>
 
+      {/* Playback lock banner (✕ dismisses just the banner) */}
+      {isPlayback && !lockBannerDismissed && !infoOpen && (
+        <View
+          style={[styles.lockBanner, { top: headerTop + HEADER_HEIGHT + spacing.md }]}
+          pointerEvents="box-none"
+        >
+          <MaterialCommunityIcons name="lock-outline" size={17} color={palette.textPrimary} />
+          <View style={styles.bannerText}>
+            <Text style={styles.lockBannerTitle}>Drill loaded — pieces are locked</Text>
+            <Text style={styles.lockBannerBody}>
+              Walk the steps with Back / Next, or press Play
+            </Text>
+            <Text style={styles.lockBannerBody}>
+              <Text style={styles.lockBannerAccent}>Fork</Text> copies the drill so you can edit
+              from this step
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => setLockBannerDismissed(true)}
+            hitSlop={8}
+            style={styles.bannerClose}
+          >
+            <MaterialCommunityIcons name="close" size={13} color={palette.textPrimary} />
+          </Pressable>
+        </View>
+      )}
+
+      {/* Drill info card (tap the name pill to toggle) */}
+      {isPlayback && infoOpen && loadedDrill && (
+        <View
+          style={[styles.infoCard, { top: headerTop + HEADER_HEIGHT + spacing.md }]}
+          pointerEvents="box-none"
+        >
+          <View style={styles.infoCardHeader}>
+            <Text style={styles.infoCardTitle} numberOfLines={1}>
+              {loadedDrill.name}
+            </Text>
+            <Text style={styles.infoCardHint}>tap name to close</Text>
+          </View>
+          {loadedDrill.description ? (
+            <Text style={styles.infoCardBody}>{loadedDrill.description}</Text>
+          ) : null}
+          <View style={styles.chipRow}>
+            {loadedDrill.chips.map((chip) => (
+              <View key={chip} style={styles.chip}>
+                <Text style={styles.chipText}>{chip}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
       {/* Armed-Together banner (visual only; never blocks drags underneath) */}
       {isTogether && (
         <View
@@ -383,25 +588,44 @@ export default function BadmintonCourt() {
 
       {/* Floating bottom dock */}
       <View style={[styles.dock, { marginBottom: dockBottom }]}>
-        {isTogether ? (
-          <IconButton
-            icon="close-circle-outline"
-            label="Cancel"
-            color={palette.danger}
-            onPress={cancelTogether}
-          />
+        {isPlayback ? (
+          <>
+            <IconButton icon="source-fork" label="Fork" onPress={handleFork} />
+            <IconButton icon="step-backward" label="Back" onPress={stepBack} disabled={!canUndo} />
+            <IconButton icon="step-forward" label="Next" onPress={stepNext} disabled={!canRedo} />
+            <IconButton
+              icon={isPlaying ? 'pause' : 'play'}
+              label={isPlaying ? 'Pause' : 'Play'}
+              onPress={togglePlay}
+              active
+            />
+          </>
         ) : (
-          <IconButton icon="restart" label="Reset" onPress={resetPositions} />
+          <>
+            {isTogether ? (
+              <IconButton
+                icon="close-circle-outline"
+                label="Cancel"
+                color={palette.danger}
+                onPress={cancelTogether}
+              />
+            ) : totalSteps > 1 ? (
+              // Wipe the stack but keep positions — for staging a start formation.
+              <IconButton icon="broom" label="Clear" onPress={clearSteps} />
+            ) : (
+              <IconButton icon="restart" label="Reset" onPress={resetPositions} />
+            )}
+            <IconButton icon="undo-variant" label="Undo" onPress={undo} disabled={!canUndo || isTogether} />
+            <IconButton icon="redo-variant" label="Redo" onPress={redo} disabled={!canRedo || isTogether} />
+            <IconButton
+              icon="link-variant"
+              label="Together"
+              onPress={toggleTogether}
+              active={isTogether}
+              badge={togetherCount}
+            />
+          </>
         )}
-        <IconButton icon="undo-variant" label="Undo" onPress={undo} disabled={!canUndo || isTogether} />
-        <IconButton icon="redo-variant" label="Redo" onPress={redo} disabled={!canRedo || isTogether} />
-        <IconButton
-          icon="link-variant"
-          label="Together"
-          onPress={toggleTogether}
-          active={isTogether}
-          badge={togetherCount}
-        />
         <IconButton
           icon="shoe-print"
           label="Trails"
@@ -426,6 +650,8 @@ export default function BadmintonCourt() {
         onClose={() => setIsMenuVisible(false)}
         isDoubles={isDoubles}
         onGameModeChange={toggleGameMode}
+        stepAnimationMs={stepAnimationMs}
+        onStepAnimationChange={setStepAnimationMs}
       />
 
       <DrillHubPanel
@@ -512,6 +738,146 @@ const styles = StyleSheet.create({
     fontSize: 8,
     letterSpacing: 0.6,
     color: palette.onAccent,
+  },
+  // Drill name pill: like the mode pill, plus a step progress bar at the bottom.
+  namePill: {
+    height: HEADER_HEIGHT + 2,
+    maxWidth: '78%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingLeft: 13,
+    paddingRight: 15,
+    paddingBottom: 7,
+    borderRadius: radii.pill,
+    backgroundColor: palette.glassPill,
+    borderWidth: 1,
+    borderColor: palette.glassPillBorder,
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  namePillLabel: {
+    ...sora('600'),
+    fontSize: 13,
+    color: palette.textPrimary,
+    flexShrink: 1,
+    maxWidth: 150,
+  },
+  namePillCount: {
+    ...sora('600'),
+    fontSize: 11,
+    letterSpacing: 0.4,
+    color: palette.textMuted,
+  },
+  namePillTrack: {
+    position: 'absolute',
+    left: 13,
+    right: 13,
+    bottom: 6,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+  },
+  namePillFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: palette.accent,
+  },
+  lockBanner: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(6, 26, 18, 0.82)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    ...shadows.card,
+  },
+  bannerText: {
+    flex: 1,
+    gap: 2,
+  },
+  lockBannerTitle: {
+    ...sora('600'),
+    fontSize: 12,
+    color: palette.textPrimary,
+  },
+  lockBannerBody: {
+    ...sora('400'),
+    fontSize: 10.5,
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  lockBannerAccent: {
+    ...sora('600'),
+    color: palette.accent,
+  },
+  bannerClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoCard: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    gap: spacing.sm,
+    paddingVertical: 15,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 20,
+    backgroundColor: 'rgba(6, 26, 18, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    ...shadows.floating,
+  },
+  infoCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  infoCardTitle: {
+    ...sora('700'),
+    fontSize: 15,
+    color: palette.textPrimary,
+    flex: 1,
+  },
+  infoCardHint: {
+    ...sora('400'),
+    fontSize: 10,
+    color: palette.textMuted,
+  },
+  infoCardBody: {
+    ...sora('400'),
+    fontSize: 11.5,
+    lineHeight: 18,
+    color: 'rgba(255, 255, 255, 0.75)',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  chip: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  chipText: {
+    ...sora('600'),
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   // Amber glass per the Together mockup (opacity bumped: no backdrop blur on RN).
   togetherBanner: {

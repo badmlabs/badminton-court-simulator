@@ -42,6 +42,9 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
   // Together: while armed, drag commits are deferred — every move accumulates
   // in tempPosition and saving pushes them as one history step.
   const [isTogether, setIsTogether] = useState(false);
+  // Playback: a loaded drill starts locked — walk/play the steps; Fork exits
+  // to editing at the current step.
+  const [isPlayback, setIsPlayback] = useState(false);
   // Initialize state with ghost markers at the same positions as players and shuttle
   useEffect(() => {
     const initialPlayers = getInitialPositions(isDoubles, courtDimensions);
@@ -179,7 +182,38 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setCurrentIndex(0);
     setTempPosition(null);
     setIsTogether(false);
+    setIsPlayback(false);
   }, [isDoubles, courtDimensions]);
+
+  // Collapse the stack to a single step holding the current positions — for
+  // setting up a starting formation, then recording steps from it.
+  const clearSteps = useCallback(() => {
+    const current = positionHistory[currentIndex];
+    if (!current) return;
+    setPositionHistory([{
+      players: current.players,
+      shuttle: current.shuttle,
+      ghostPositions: {
+        team1: [...current.players.team1],
+        team2: [...current.players.team2],
+        shuttle: current.shuttle,
+      },
+    }]);
+    setCurrentIndex(0);
+    setTempPosition(null);
+    setIsTogether(false);
+  }, [currentIndex, positionHistory]);
+
+  // Fork: unlock a loaded drill for editing at the current step. The next
+  // committed drag naturally truncates the steps ahead.
+  const exitPlayback = useCallback(() => {
+    setIsPlayback(false);
+  }, []);
+
+  // Jump back to the first step (autoplay loop restart).
+  const goToStart = useCallback(() => {
+    setCurrentIndex(0);
+  }, []);
 
   const toggleGameMode = useCallback((value: boolean) => {
     setIsDoubles(value);
@@ -198,6 +232,7 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setCurrentIndex(0);
     setTempPosition(null);
     setIsTogether(false);
+    setIsPlayback(false);
   }, [courtDimensions]);
 
   const undo = useCallback(() => {
@@ -238,6 +273,7 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setCurrentIndex(0);
     setTempPosition(null);
     setIsTogether(false);
+    setIsPlayback(true);
   }, [isDoubles]);
 
   const loadNormalizedSteps = useCallback((
@@ -270,8 +306,12 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     toggleTogether,
     cancelTogether,
     togetherMoved,
+    isPlayback,
+    exitPlayback,
+    goToStart,
     toggleGameMode,
     resetPositions,
+    clearSteps,
     undo,
     redo,
     canUndo: currentIndex > 0,

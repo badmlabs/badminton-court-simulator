@@ -242,9 +242,24 @@ interface SettingsPanelProps {
   onClose: () => void;
   isDoubles: boolean;
   onGameModeChange: (isDoubles: boolean) => void;
+  /** Glide duration between steps (ms). */
+  stepAnimationMs: number;
+  onStepAnimationChange: (ms: number) => void;
 }
 
-export function SettingsPanel({ isVisible, onClose, isDoubles, onGameModeChange }: SettingsPanelProps) {
+// Speed slider bounds: left end = slow (800ms glide), right end = fast (80ms).
+// The slider position is the inverse of the duration: pos = 880 - ms.
+const GLIDE_SLOWEST = 800;
+const GLIDE_FASTEST = 80;
+
+export function SettingsPanel({
+  isVisible,
+  onClose,
+  isDoubles,
+  onGameModeChange,
+  stepAnimationMs,
+  onStepAnimationChange,
+}: SettingsPanelProps) {
   const { customizations, updateMarkerCustomization, resetCustomizations } = useMarkerCustomization();
 
   // Switching mode reseeds the court, so ignore taps on the already-active option.
@@ -281,7 +296,7 @@ export function SettingsPanel({ isVisible, onClose, isDoubles, onGameModeChange 
           <View style={styles.header}>
             <View>
               <Text style={styles.headerTitle}>Customize</Text>
-              <Text style={styles.headerSubtitle}>Game mode, marker colors, icons and sizes</Text>
+              <Text style={styles.headerSubtitle}>Game mode, step speed, marker colors and icons</Text>
             </View>
             <TouchableOpacity onPress={onClose} hitSlop={8} style={styles.closeButton}>
               <MaterialCommunityIcons name="close" size={18} color={palette.textPrimary} />
@@ -321,6 +336,27 @@ export function SettingsPanel({ isVisible, onClose, isDoubles, onGameModeChange 
                   Doubles
                 </Text>
               </TouchableOpacity>
+            </View>
+
+            <Text style={styles.sectionLabel}>Step speed</Text>
+            <View style={styles.speedCard}>
+              <MaterialCommunityIcons name="turtle" size={19} color={palette.textSecondary} />
+              <View style={styles.speedSlider}>
+                <AppSlider
+                  minimumValue={GLIDE_FASTEST}
+                  maximumValue={GLIDE_SLOWEST}
+                  value={GLIDE_SLOWEST + GLIDE_FASTEST - stepAnimationMs}
+                  onValueChange={(v) =>
+                    onStepAnimationChange(Math.round(GLIDE_SLOWEST + GLIDE_FASTEST - v))
+                  }
+                  trackColor="rgba(255, 255, 255, 0.16)"
+                  trackHeight={5}
+                  filledColor="rgba(255, 201, 77, 0.55)"
+                  thumbColor={palette.accent}
+                  thumbSize={16}
+                />
+              </View>
+              <MaterialCommunityIcons name="rabbit" size={19} color={palette.textSecondary} />
             </View>
 
             <Text style={styles.sectionLabel}>Team 1</Text>
@@ -479,6 +515,21 @@ const styles = StyleSheet.create({
   modeOptionTextActive: {
     ...sora('700'),
     color: palette.onAccent,
+  },
+  speedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: palette.card,
+    borderWidth: 1,
+    borderColor: palette.cardBorder,
+    borderRadius: radii.md,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  speedSlider: {
+    flex: 1,
   },
   rowCard: {
     flexDirection: 'row',
