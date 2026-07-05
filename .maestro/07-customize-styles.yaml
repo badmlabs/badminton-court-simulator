@@ -1,0 +1,23 @@
+# CUF: the tabbed Customize sheet — pick a mascot look for P1, a free
+# shuttle style, preview a Pro shuttle style (unlock banner appears),
+# and keep a free court theme. Board must stay pristine afterwards.
+appId: com.haritabhgupta.badmintoncourtsimulator
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Doubles.*Step 1"
+- tapOn: "Customize"
+- assertVisible: "INCLUDED"
+- tapOn: "Fox"
+- assertVisible: "Fox · Player 1"
+- tapOn: "Shuttle tab"
+- assertVisible: "SHUTTLE STYLE"
+- tapOn: "Chalk"
+# a locked style previews live and raises the unlock prompt
+- tapOn: "Smash Trail"
+- assertVisible: "Smash Trail is a Pro style"
+- tapOn: "Court tab"
+- assertVisible: "COURT THEME"
+- tapOn: "Tournament Blue"
+- tapOn: "Close settings"
+- assertVisible: "Doubles.*Step 1"

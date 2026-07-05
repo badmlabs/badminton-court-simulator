@@ -14,6 +14,7 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import { LINE_UNITS, LinesRect } from './CourtSvg';
+import { CourtTheme, courtThemeById } from '../constants/customization';
 import { palette, radii, sora } from '../constants/theme';
 import {
   arcPath,
@@ -63,6 +64,8 @@ interface Court3DViewProps {
   shuttleSize: number;
   /** Distance from the bottom for the gesture hint chip (clears the dock). */
   hintBottom: number;
+  /** Court theme; defaults to Classic Green. */
+  theme?: CourtTheme;
 }
 
 // Flight time fraction: hold on the landed shuttle for a beat (matches the
@@ -87,6 +90,7 @@ export function Court3DView({
   showShuttleTrail,
   shuttleSize,
   hintBottom,
+  theme = courtThemeById('green'),
 }: Court3DViewProps) {
   const stepIndex = steps.length - 1;
   // phiRaw is the unfiltered drag accumulator; the displayed yaw applies a
@@ -242,19 +246,19 @@ export function Court3DView({
       <Svg width={width} height={height} pointerEvents="none">
         <Defs>
           <LinearGradient id="court3dBg" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={palette.courtTop} />
-            <Stop offset="0.55" stopColor={palette.courtMid} />
-            <Stop offset="1" stopColor={palette.courtBottom} />
+            <Stop offset="0" stopColor={theme.top} />
+            <Stop offset="0.55" stopColor={theme.mid ?? theme.top} />
+            <Stop offset="1" stopColor={theme.bottom} />
           </LinearGradient>
           <LinearGradient id="fog3d" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={palette.courtTop} stopOpacity={1} />
-            <Stop offset="1" stopColor={palette.courtTop} stopOpacity={0} />
+            <Stop offset="0" stopColor={theme.top} stopOpacity={1} />
+            <Stop offset="1" stopColor={theme.top} stopOpacity={0} />
           </LinearGradient>
         </Defs>
 
         <Rect x={0} y={0} width={width} height={height} fill="url(#court3dBg)" />
         <Polygon points={floorPts} fill="rgba(0,0,0,0.08)" />
-        <Path d={linesD} stroke={palette.courtLine} strokeWidth={lineWidth} strokeLinecap="round" fill="none" />
+        <Path d={linesD} stroke={theme.line} strokeWidth={lineWidth} strokeLinecap="round" fill="none" />
         <Path
           d={seg(nb1, nb2)}
           stroke="#FFFFFF"

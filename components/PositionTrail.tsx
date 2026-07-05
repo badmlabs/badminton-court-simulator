@@ -7,12 +7,22 @@ interface PositionTrailProps {
   ghostPosition: PlayerPosition;
   /** Size of the marker the trail belongs to; positions are its top-left. */
   markerSize?: number;
+  /**
+   * Comet colors (oldest → newest) for styled shuttle trails: dots grow and
+   * shift color toward the marker, and the ghost ring is dropped.
+   */
+  tint?: string[];
 }
 
 // Match Point trails: thin dashed white path + ghost ring at the prior spot.
 const TRAIL_WHITE = 'rgba(255, 255, 255, 0.6)';
 
-export function PositionTrail({ currentPosition, ghostPosition, markerSize = 46 }: PositionTrailProps) {
+export function PositionTrail({
+  currentPosition,
+  ghostPosition,
+  markerSize = 46,
+  tint,
+}: PositionTrailProps) {
   const half = markerSize / 2;
   // Calculate the angle and length of the line
   const dx = currentPosition.x - ghostPosition.x;
@@ -24,36 +34,46 @@ export function PositionTrail({ currentPosition, ghostPosition, markerSize = 46 
   const DOT_SIZE = 5;
   const DOT_SPACING = 12;
   const numberOfDots = Math.floor(length / DOT_SPACING);
-  const dots = Array.from({ length: numberOfDots }, (_, i) => (
-    <View
-      key={i}
-      style={[
-        styles.dot,
-        {
-          left: ghostPosition.x + half - DOT_SIZE / 2 + (i * DOT_SPACING * Math.cos(angle * Math.PI / 180)),
-          top: ghostPosition.y + half - DOT_SIZE / 2 + (i * DOT_SPACING * Math.sin(angle * Math.PI / 180)),
-          width: DOT_SIZE,
-          height: DOT_SIZE,
-          opacity: 0.25 + 0.6 * ((i + 1) / Math.max(numberOfDots, 1)),
-        },
-      ]}
-    />
-  ));
+  const dots = Array.from({ length: numberOfDots }, (_, i) => {
+    const t = (i + 1) / Math.max(numberOfDots, 1);
+    const dotSize = tint ? DOT_SIZE * (0.7 + t) : DOT_SIZE;
+    return (
+      <View
+        key={i}
+        style={[
+          styles.dot,
+          {
+            left: ghostPosition.x + half - dotSize / 2 + (i * DOT_SPACING * Math.cos(angle * Math.PI / 180)),
+            top: ghostPosition.y + half - dotSize / 2 + (i * DOT_SPACING * Math.sin(angle * Math.PI / 180)),
+            width: dotSize,
+            height: dotSize,
+            borderRadius: dotSize / 2,
+            opacity: 0.25 + 0.6 * t,
+            backgroundColor: tint
+              ? tint[Math.min(tint.length - 1, Math.floor(t * tint.length))]
+              : '#FFFFFF',
+          },
+        ]}
+      />
+    );
+  });
 
   return (
     <>
       {dots}
-      <View
-        style={[
-          styles.ghostMarker,
-          {
-            left: ghostPosition.x + half - 10,
-            top: ghostPosition.y + half - 10,
-          },
-        ]}
-      >
-        <View style={styles.ghostCore} />
-      </View>
+      {!tint && (
+        <View
+          style={[
+            styles.ghostMarker,
+            {
+              left: ghostPosition.x + half - 10,
+              top: ghostPosition.y + half - 10,
+            },
+          ]}
+        >
+          <View style={styles.ghostCore} />
+        </View>
+      )}
     </>
   );
 }
@@ -61,8 +81,6 @@ export function PositionTrail({ currentPosition, ghostPosition, markerSize = 46 
 const styles = StyleSheet.create({
   dot: {
     position: 'absolute',
-    borderRadius: 3,
-    backgroundColor: '#FFFFFF',
   },
   ghostMarker: {
     position: 'absolute',
