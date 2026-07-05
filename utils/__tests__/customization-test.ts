@@ -11,9 +11,9 @@ import { getHueFromColor, hueToHex } from '../color';
 
 describe('customization catalog', () => {
   it('matches the designed free/Pro split', () => {
-    // Free: 4 circle looks + Panda & Fox; Pro: 6 action-pose mascots.
+    // Free: 4 circle looks + Fox & Koala; Pro: 6 action-pose mascots.
     expect(CIRCLE_LOOKS).toHaveLength(4);
-    expect(MASCOTS.filter((m) => !m.pro).map((m) => m.id)).toEqual(['panda', 'fox']);
+    expect(MASCOTS.filter((m) => !m.pro).map((m) => m.id)).toEqual(['fox', 'koala']);
     expect(MASCOTS.filter((m) => m.pro)).toHaveLength(6);
     // Every Pro mascot advertises its action pose on the tile.
     MASCOTS.filter((m) => m.pro).forEach((m) => expect(m.pose).toBeTruthy());

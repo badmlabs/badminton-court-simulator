@@ -32,13 +32,13 @@ export const CIRCLE_LOOKS: { id: CircleLookId; name: string }[] = [
 ];
 
 export const MASCOTS: MascotMeta[] = [
-  { id: 'panda', name: 'Panda', pro: false },
   { id: 'fox', name: 'Fox', pro: false },
+  { id: 'koala', name: 'Koala', pro: false },
+  { id: 'panda', name: 'Panda', pose: 'ready stance', pro: true },
   { id: 'bear', name: 'Bear', pose: 'jump smash', pro: true },
   { id: 'tiger', name: 'Tiger', pose: 'sprint', pro: true },
   { id: 'frog', name: 'Frog', pose: 'flying leap', pro: true },
   { id: 'penguin', name: 'Penguin', pose: 'slide save', pro: true },
-  { id: 'koala', name: 'Koala', pose: 'gold cape', pro: true },
   { id: 'owl', name: 'Owl', pose: 'night cape', pro: true },
 ];
 
