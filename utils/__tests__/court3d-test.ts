@@ -6,6 +6,8 @@ import {
   shotBetween,
   shotPos,
   THETA_DEFAULT,
+  THETA_MAX,
+  THETA_MIN,
 } from '../court3d';
 import { COURT_H, COURT_W } from '../../components/CourtSvg';
 
@@ -51,6 +53,24 @@ describe('makeProjector', () => {
     const centerHigh = project(305, 670, 300);
     expect(centerGround[0]).toBeCloseTo(lines.x + lines.width / 2, 6);
     expect(centerHigh[1]).toBeLessThan(centerGround[1]); // up on screen
+  });
+
+  it('keeps every corner on screen at any tilt while the court is straight', () => {
+    // The green mat is horizontally centered, so screen width = 2 * center x.
+    const screenW = 2 * (lines.x + lines.width / 2);
+    for (const thetaDeg of [THETA_MIN, THETA_DEFAULT, THETA_MAX]) {
+      const project = makeProjector(lines, { b: 1, thetaDeg, phiDeg: 0, zoom: 1 });
+      for (const [x, z] of [
+        [0, 0],
+        [COURT_W, 0],
+        [0, COURT_H],
+        [COURT_W, COURT_H],
+      ]) {
+        const [px] = project(x, z, 0);
+        expect(px).toBeGreaterThanOrEqual(0);
+        expect(px).toBeLessThanOrEqual(screenW);
+      }
+    }
   });
 
   it('yaw shifts a centered far point sideways', () => {

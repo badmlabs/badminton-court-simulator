@@ -35,12 +35,14 @@ export const PHI_MAX = 18;
 export const NET_POST_H = 155; // BWF net height at the posts, cm
 
 // Tuned in the design prototype: camera distance and height exaggeration are
-// in court cm; the scale boost/center lift keep the tilted court filling the
-// space the foreshortening frees up.
+// in court cm; the center lift keeps the tilted court visually centered.
 const CAM_DIST = 1900;
 const HEIGHT_LIFT = 0.55;
-const TILT_SCALE_BOOST = 1.214;
 const TILT_CENTER_LIFT = 0.075;
+// Full-tilt zoom is fit-driven: the near corners — the widest projected
+// points, at the steepest allowed tilt — stay this far inside the screen
+// edge while the court is straight. Yaw may push them off-screen.
+const FIT_MARGIN = 8;
 
 export type Projected = readonly [x: number, y: number, scale: number];
 export type Projector = (x: number, z: number, h?: number) => Projected;
@@ -54,11 +56,13 @@ export function makeProjector(lines: LinesRect, cam: CamState): Projector {
   const sp = Math.sin(ph);
   const sx2d = lines.width / COURT_W;
   const sy2d = lines.height / COURT_H;
-  const s3d = TILT_SCALE_BOOST * sx2d;
+  const cx = lines.x + lines.width / 2; // the mat is centered, so cx = half the screen
+  const cy = lines.y + lines.height / 2 - TILT_CENTER_LIFT * lines.height * cam.b;
+  const sNearMax =
+    CAM_DIST / (CAM_DIST - (COURT_H / 2) * Math.sin((THETA_MAX * Math.PI) / 180));
+  const s3d = (cx - FIT_MARGIN) / ((COURT_W / 2) * sNearMax);
   const scaleX = (sx2d + (s3d - sx2d) * cam.b) * cam.zoom;
   const scaleY = (sy2d + (s3d - sy2d) * cam.b) * cam.zoom;
-  const cx = lines.x + lines.width / 2;
-  const cy = lines.y + lines.height / 2 - TILT_CENTER_LIFT * lines.height * cam.b;
 
   return (x, z, h = 0) => {
     const xc = x - COURT_W / 2;

@@ -89,7 +89,9 @@ export function Court3DView({
   hintBottom,
 }: Court3DViewProps) {
   const stepIndex = steps.length - 1;
-  const [cam, setCam] = useState({ thetaDeg: THETA_DEFAULT, phiDeg: 0 });
+  // phiRaw is the unfiltered drag accumulator; the displayed yaw applies a
+  // soft detent at straight-on (see phiDeg below).
+  const [cam, setCam] = useState({ thetaDeg: THETA_DEFAULT, phiRaw: 0 });
   // tp starts landed (1) so entering 3D shows the board exactly where 2D left
   // it; it rewinds to 0 (replaying the flight in) only when the step changes.
   const [tp, setTp] = useState(1);
@@ -154,7 +156,7 @@ export function Court3DView({
       const dy = py - prev[1];
       setCam((c) => ({
         thetaDeg: clamp(c.thetaDeg - dy * 0.22, THETA_MIN, THETA_MAX),
-        phiDeg: clamp(c.phiDeg - dx * 0.12, -PHI_MAX, PHI_MAX),
+        phiRaw: clamp(c.phiRaw - dx * 0.12, -PHI_MAX, PHI_MAX),
       }));
     }
     touchRef.current = [px, py];
@@ -166,7 +168,16 @@ export function Court3DView({
 
   if (!steps.length) return null;
 
-  const project = makeProjector(linesRect, { ...cam, zoom: 1, b });
+  // Soft detent at straight-on: yaw holds at 0 through a small dead zone
+  // (~20dp of drag) and eases back in past it, still reaching the full range.
+  const SNAP_DEG = 2.5;
+  const phiMag = Math.abs(cam.phiRaw);
+  const phiDeg =
+    phiMag <= SNAP_DEG
+      ? 0
+      : ((phiMag - SNAP_DEG) / (PHI_MAX - SNAP_DEG)) * PHI_MAX * Math.sign(cam.phiRaw);
+
+  const project = makeProjector(linesRect, { thetaDeg: cam.thetaDeg, phiDeg, zoom: 1, b });
   const lineWidth = Math.max(1.5, LINE_UNITS * (linesRect.width / COURT_W));
   const tc = Math.min(1, tp);
 
