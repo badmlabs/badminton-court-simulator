@@ -260,11 +260,19 @@ export function Court3DView({
         h,
         fx: f[0],
         fy: f[1],
+        zc: z,
         near: facingAway,
       };
     });
-  const farSprites = sprites.filter((s) => !s.near);
-  const nearSprites = sprites.filter((s) => s.near);
+  const byDepth = (a: { zc: number }, c: { zc: number }) => a.zc - c.zc;
+  const farSprites = sprites.filter((s) => !s.near).sort(byDepth);
+  const nearSprites = sprites.filter((s) => s.near).sort(byDepth);
+  // Near figures sandwich the shuttle by depth: a shuttle between a player
+  // and the net sits beyond him from the camera, so his body occludes it at
+  // the hit; once it passes behind him it draws over him instead.
+  const shuttleZNow = shuttleCourt[1];
+  const nearBehindShuttle = nearSprites.filter((s) => s.zc < shuttleZNow);
+  const nearOverShuttle = nearSprites.filter((s) => s.zc >= shuttleZNow);
 
   const spriteShadow = (s: (typeof sprites)[number]) => (
     <Ellipse
@@ -462,8 +470,9 @@ export function Court3DView({
 
       </Svg>
 
-      {/* Near-court mascots stand in front of the net, backs to the camera. */}
-      {nearSprites.map(spriteView)}
+      {/* Near-court mascots stand in front of the net, backs to the camera;
+          those closer to the net than the shuttle render under it. */}
+      {nearBehindShuttle.map(spriteView)}
 
       <Svg width={width} height={height} pointerEvents="none" style={StyleSheet.absoluteFill}>
         {/* Shuttle chip */}
@@ -481,6 +490,9 @@ export function Court3DView({
           <Circle cx={12} cy={18.4} r={3} fill={palette.shuttleGlyph} />
         </G>
       </Svg>
+
+      {/* Near figures the shuttle has passed: they now occlude it. */}
+      {nearOverShuttle.map(spriteView)}
 
       {/* Orbit / pinch surface (dock and header sit above and win touches) */}
       <View
