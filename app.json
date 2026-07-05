@@ -3,7 +3,7 @@
     "name": "Featherwork",
     "slug": "badminton-court-simulator",
     "owner": "haritabh1992",
-    "version": "2.8.1",
+    "version": "2.9.0",
     "scheme": "badminton-court-simulator",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -30,7 +30,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.haritabhgupta.badmintoncourtsimulator",
-      "versionCode": 19,
+      "versionCode": 20,
       "permissions": ["com.android.vending.BILLING"],
       "intentFilters": [
         {
