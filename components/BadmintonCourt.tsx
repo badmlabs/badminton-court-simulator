@@ -659,8 +659,8 @@ export default function BadmintonCourt() {
               Walk the steps with Back / Next, or press Play
             </Text>
             <Text style={styles.lockBannerBody}>
-              <Text style={styles.lockBannerAccent}>Fork</Text> copies the drill so you can edit
-              from this step
+              <Text style={styles.lockBannerAccent}>Fork</Text> exits playback at any stage so
+              you can edit from that step
             </Text>
           </View>
           <Pressable
@@ -688,6 +688,10 @@ export default function BadmintonCourt() {
           {loadedDrill.description ? (
             <Text style={styles.infoCardBody}>{loadedDrill.description}</Text>
           ) : null}
+          <Text style={styles.infoCardBody}>
+            <Text style={styles.lockBannerAccent}>Fork</Text> exits drill playback at any stage
+            and unlocks the pieces for editing.
+          </Text>
           <View style={styles.chipRow}>
             {loadedDrill.chips.map((chip) => (
               <View key={chip} style={styles.chip}>

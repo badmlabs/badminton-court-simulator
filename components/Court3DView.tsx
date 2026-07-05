@@ -196,15 +196,6 @@ export function Court3DView({
     `M${a[0].toFixed(1)} ${a[1].toFixed(1)} L${c[0].toFixed(1)} ${c[1].toFixed(1)}`;
   const netPts = [nb1, nb2, nt2, nt1].map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
 
-  // Ghost arcs of the flights already played
-  let ghostD = '';
-  if (showShuttleTrail) {
-    for (let k = 1; k < stepIndex; k++) {
-      const g = shotBetween(steps[k - 1].shuttle, steps[k].shuttle);
-      if (g) ghostD += arcPath(project, g, 0, 1, 16) + ' ';
-    }
-  }
-
   const cur = steps[stepIndex];
   const prev = stepIndex > 0 ? steps[stepIndex - 1] : null;
 
@@ -282,9 +273,6 @@ export function Court3DView({
             fill="url(#fog3d)"
             opacity={0.85 * b}
           />
-        )}
-        {!!ghostD && (
-          <Path d={ghostD} stroke={palette.accent} strokeOpacity={0.22} strokeWidth={3} strokeLinecap="round" fill="none" />
         )}
         <Polygon points={netPts} fill="rgba(255,255,255,0.14)" />
         <Path d={seg(nt1, nt2)} stroke="#FFFFFF" strokeOpacity={0.95} strokeWidth={2.6} strokeLinecap="round" fill="none" />
