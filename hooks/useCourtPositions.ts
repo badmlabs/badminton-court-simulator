@@ -38,10 +38,9 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
   const [showShuttleTrail, setShowShuttleTrail] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [positionHistory, setPositionHistory] = useState<PositionState[]>([]);
+  // Every drag accumulates here as the pending step; nothing commits until
+  // Next banks it (the old Together mode, now always on).
   const [tempPosition, setTempPosition] = useState<PositionState | null>(null);
-  // Together: while armed, drag commits are deferred — every move accumulates
-  // in tempPosition and saving pushes them as one history step.
-  const [isTogether, setIsTogether] = useState(false);
   // Playback: a loaded drill starts locked — walk/play the steps; Fork exits
   // to editing at the current step.
   const [isPlayback, setIsPlayback] = useState(false);
@@ -72,7 +71,7 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
   ) => {
     if (isStart) {
       // Refresh only the dragged piece's ghost, seeding it from the committed
-      // state so re-dragging a piece mid-Together keeps its step-start ghost.
+      // state so re-dragging a piece mid-step keeps its step-start ghost.
       const ghostPositions = {
         team1: [...base.ghostPositions.team1],
         team2: [...base.ghostPositions.team2],
@@ -105,8 +104,8 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     isStart: boolean = false
   ) => {
     const committed = positionHistory[currentIndex];
-    // Base on the in-progress temp state so moving a second piece (Together)
-    // doesn't clobber the first piece's uncommitted move.
+    // Base on the in-progress temp state so moving a second piece doesn't
+    // clobber the first piece's uncommitted move in the pending step.
     const base = tempPosition ?? committed;
     const newPlayers = {
       ...base.players,
@@ -133,7 +132,14 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     }, base, committed, undefined, undefined, true, isStart);
   }, [currentIndex, positionHistory, tempPosition, updatePosition]);
 
-  const commitTemp = useCallback(() => {
+  // Pieces with uncommitted moves right now (drives the armed Next button).
+  const hasPending =
+    !!tempPosition &&
+    !!positionHistory[currentIndex] &&
+    statesDiffer(tempPosition, positionHistory[currentIndex]);
+
+  // Bank the pending moves as ONE history step (the amber Next in Redo's slot).
+  const bankStep = useCallback(() => {
     if (!tempPosition) return;
     // Skip no-op commits: a tap without a drag must not add a history step.
     if (statesDiffer(tempPosition, positionHistory[currentIndex])) {
@@ -144,26 +150,12 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
   }, [currentIndex, positionHistory, tempPosition]);
 
   const handlePositionChangeComplete = useCallback(() => {
-    if (isTogether) return; // armed: keep accumulating until saved
-    commitTemp();
-  }, [commitTemp, isTogether]);
-
-  // Arm Together, or — when already armed — save the accumulated moves as
-  // one history step.
-  const toggleTogether = useCallback(() => {
-    if (!isTogether) {
-      setIsTogether(true);
-      return;
+    // Moves stay pending until Next banks them; only a no-op temp (tap
+    // without a drag) is dropped so it can't shadow undo/redo rendering.
+    if (tempPosition && !statesDiffer(tempPosition, positionHistory[currentIndex])) {
+      setTempPosition(null);
     }
-    setIsTogether(false);
-    commitTemp();
-  }, [commitTemp, isTogether]);
-
-  // Discard the armed step; markers glide back to their committed spots.
-  const cancelTogether = useCallback(() => {
-    setIsTogether(false);
-    setTempPosition(null);
-  }, []);
+  }, [currentIndex, positionHistory, tempPosition]);
 
   // Reset ghost markers when resetting positions
   const resetPositions = useCallback(() => {
@@ -181,7 +173,6 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setPositionHistory([initialState]);
     setCurrentIndex(0);
     setTempPosition(null);
-    setIsTogether(false);
     setIsPlayback(false);
   }, [isDoubles, courtDimensions]);
 
@@ -201,7 +192,6 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     }]);
     setCurrentIndex(0);
     setTempPosition(null);
-    setIsTogether(false);
   }, [currentIndex, positionHistory]);
 
   // Fork: unlock a loaded drill for editing at the current step. The next
@@ -231,17 +221,23 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setPositionHistory([initialState]);
     setCurrentIndex(0);
     setTempPosition(null);
-    setIsTogether(false);
     setIsPlayback(false);
   }, [courtDimensions]);
 
+  // With moves pending, Undo discards them (markers glide back); only then
+  // does it start walking committed history.
   const undo = useCallback(() => {
+    if (hasPending) {
+      setTempPosition(null);
+      return;
+    }
     if (currentIndex > 0) setCurrentIndex(prev => prev - 1);
-  }, [currentIndex]);
+  }, [currentIndex, hasPending]);
 
   const redo = useCallback(() => {
+    if (hasPending) return; // the slot is Next while moves are pending
     if (currentIndex < positionHistory.length - 1) setCurrentIndex(prev => prev + 1);
-  }, [currentIndex, positionHistory.length]);
+  }, [currentIndex, hasPending, positionHistory.length]);
 
   // Jump straight to a history step (3D playback wraps around with this).
   const goToStep = useCallback((index: number) => {
@@ -277,7 +273,6 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     setPositionHistory(steps);
     setCurrentIndex(0);
     setTempPosition(null);
-    setIsTogether(false);
     setIsPlayback(true);
   }, [isDoubles]);
 
@@ -289,17 +284,6 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     loadSteps(courtSteps, nextIsDoubles);
   }, [courtDimensions, isDoubles, loadSteps]);
 
-  // Which pieces have uncommitted moves in the armed Together step (drives
-  // the amber rings and the dock badge count).
-  const committedState = positionHistory[currentIndex];
-  const togetherMoved = isTogether && tempPosition && committedState
-    ? {
-        team1: tempPosition.players.team1.map((pos, i) => hasMoved(pos, committedState.players.team1[i])),
-        team2: tempPosition.players.team2.map((pos, i) => hasMoved(pos, committedState.players.team2[i])),
-        shuttle: hasMoved(tempPosition.shuttle, committedState.shuttle),
-      }
-    : null;
-
   return {
     isDoubles,
     playerPositions: tempPosition?.players || positionHistory[currentIndex]?.players || getInitialPositions(isDoubles, courtDimensions),
@@ -307,10 +291,8 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     updatePlayerPosition,
     updateShuttlePosition,
     handlePositionChangeComplete,
-    isTogether,
-    toggleTogether,
-    cancelTogether,
-    togetherMoved,
+    hasPending,
+    bankStep,
     isPlayback,
     exitPlayback,
     goToStart,
@@ -320,7 +302,7 @@ export function useCourtPositions(courtDimensions: CourtDimensions) {
     undo,
     redo,
     goToStep,
-    canUndo: currentIndex > 0,
+    canUndo: hasPending || currentIndex > 0,
     canRedo: currentIndex < positionHistory.length - 1,
     lastStationaryPlayers: positionHistory[currentIndex]?.lastStationaryPositions?.team1 && {
       team1: positionHistory[currentIndex].lastStationaryPositions.team1,

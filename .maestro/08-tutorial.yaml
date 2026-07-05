@@ -1,0 +1,44 @@
+# CUF: the first-run tutorial end to end — six pages, each advanced by
+# tapping the one live control: drag Player 1, bank with Next, open Drills,
+# save the drill, play it back, open Customize; the finale shows the replay ⓘ.
+appId: com.haritabhgupta.badmintoncourtsimulator
+---
+- launchApp:
+    clearState: true
+# page 1: chalk asks for a Player 1 drag
+- assertVisible: "grab Player 1"
+- swipe:
+    start: 30%, 35%
+    end: 48%, 45%
+    duration: 800
+# page 2: the move is pending (header still Step 1) and Redo's slot is Next
+- assertVisible: "tap Next to bank it"
+- assertVisible: "Doubles.*Step 1"
+- tapOn: "Next"
+# page 3: step banked, Drills is the live control
+- assertVisible: "Doubles.*Step 2"
+- assertVisible: "your steps need a home.*"
+- tapOn: "Drills"
+# page 4: drill hub opens with only Save live; the naming dialog follows
+- assertVisible: "save the masterpiece"
+- tapOn: "Save current steps"
+- assertVisible: "Save drill"
+- tapOn: "Name"
+- inputText: "My First Drill"
+- tapOn: "Save"
+- assertVisible: ".*has been saved.*"
+- tapOn: "OK"
+# page 5: the saved drill row appears; play runs it
+- assertVisible: "run it back anytime"
+- tapOn: "Play drill"
+# the two banked steps auto-run, then the tour points at Customize
+- extendedWaitUntil:
+    visible: "make the markers yours"
+    timeout: 15000
+- tapOn: "Customize"
+# finale: chalk sign-off, Player 1 card and the replay ⓘ stay lit
+- assertVisible: "court's yours, coach"
+- assertVisible: "Replay tour"
+- tapOn: "Close settings"
+# closing Customize ends the tour; the court is back to normal editing
+- assertVisible: "Doubles.*Step 2"

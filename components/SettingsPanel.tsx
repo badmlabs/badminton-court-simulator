@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Modal,
@@ -33,6 +33,7 @@ import { MarkerId, useMarkerCustomization } from '../context/MarkerCustomization
 import { useVaultAccess } from '../hooks/useVaultAccess';
 import { getHueFromColor, hueToHex } from '../utils/color';
 import { pickMarkerPhoto } from '../utils/pickMarkerPhoto';
+import { AmberWord, Chalk, ChalkArrow, TutorialDots, TutorialRing } from './TutorialOverlay';
 import {
   markerContentColor,
   markerRingColor,
@@ -228,6 +229,9 @@ interface SettingsPanelProps {
   vault: ReturnType<typeof useVaultAccess>;
   /** A locked court theme was tapped: parent closes the sheet into try-on. */
   onStartThemeTryOn: () => void;
+  /** First-run tour finale: chalk + only the Player 1 card and the ⓘ stay live. */
+  tutorialDone?: boolean;
+  onReplayTutorial?: () => void;
 }
 
 export function SettingsPanel({
@@ -239,6 +243,8 @@ export function SettingsPanel({
   onStepAnimationChange,
   vault,
   onStartThemeTryOn,
+  tutorialDone = false,
+  onReplayTutorial,
 }: SettingsPanelProps) {
   const {
     customizations,
@@ -263,6 +269,15 @@ export function SettingsPanel({
   const isSubscribed = vault.isSubscribed;
   const [tab, setTab] = useState<Tab>('players');
   const [paywallOpen, setPaywallOpen] = useState(false);
+
+  // Tour finale: open on the Players tab with Player 1 as the worked example.
+  useEffect(() => {
+    if (isVisible && tutorialDone) {
+      setTab('players');
+      setSelectedMarker('P1');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, tutorialDone]);
 
   const player: Exclude<MarkerId, 'Shuttle'> =
     selectedMarker === 'Shuttle' ? 'P1' : selectedMarker;
@@ -341,7 +356,9 @@ export function SettingsPanel({
     ? shuttleStyleById(previews.shuttleStyle)
     : null;
 
-  const sheetHeight = tab === 'players' ? '86%' : tab === 'shuttle' ? '56%' : '78%';
+  const sheetHeight = tutorialDone
+    ? '62%'
+    : tab === 'players' ? '86%' : tab === 'shuttle' ? '56%' : '78%';
 
   // ── Tab content renderers ──────────────────────────────────────────────
 
@@ -377,6 +394,7 @@ export function SettingsPanel({
       : CIRCLE_LOOKS.find((l) => l.id === playerLook)?.name ?? 'Classic';
     return (
       <View style={styles.configCard}>
+        {tutorialDone && <TutorialRing inset={-5} radius={20} rotate="-1deg" />}
         {isMascot(playerLook) ? (
           <MascotView mascot={playerLook} band={custom.color} label={PLAYER_NUMBER[player]} width={26} />
         ) : (
@@ -502,9 +520,16 @@ export function SettingsPanel({
 
   const renderPlayersTab = () => (
     <>
-      <View style={styles.playerChips}>{PLAYER_IDS.map(renderPlayerChip)}</View>
+      <View
+        style={[styles.playerChips, tutorialDone && styles.tutDimmed]}
+        pointerEvents={tutorialDone ? 'none' : 'auto'}
+      >
+        {PLAYER_IDS.map(renderPlayerChip)}
+      </View>
       {renderConfigCard()}
 
+      {!tutorialDone && (
+      <>
       <Text style={styles.gridLabel}>INCLUDED</Text>
       <View style={styles.grid3}>
         {lookTile(
@@ -572,7 +597,7 @@ export function SettingsPanel({
         )}
       </View>
 
-      {!isSubscribed && (
+      {!tutorialDone && !isSubscribed && (
         <View style={styles.proBanner}>
           <MaterialCommunityIcons name="lock" size={14} color={palette.accent} />
           <Text style={styles.proBannerText}>Action poses · hero capes</Text>
@@ -581,11 +606,50 @@ export function SettingsPanel({
           </TouchableOpacity>
         </View>
       )}
+      </>
+      )}
 
-      <TouchableOpacity style={styles.resetButton} onPress={confirmReset}>
-        <MaterialCommunityIcons name="restore" size={17} color={palette.danger} />
-        <Text style={styles.resetButtonText}>Reset all customizations</Text>
-      </TouchableOpacity>
+      <View style={styles.resetRow}>
+        <TouchableOpacity
+          style={[styles.resetButton, tutorialDone && styles.tutDimmed]}
+          onPress={confirmReset}
+          disabled={tutorialDone}
+        >
+          <MaterialCommunityIcons name="restore" size={17} color={palette.danger} />
+          <Text style={styles.resetButtonText}>Reset all customizations</Text>
+        </TouchableOpacity>
+        <View>
+          <TouchableOpacity
+            style={styles.replayButton}
+            onPress={onReplayTutorial}
+            accessibilityLabel="Replay tour"
+          >
+            <MaterialCommunityIcons
+              name="information-outline"
+              size={19}
+              color="rgba(255, 255, 255, 0.9)"
+            />
+          </TouchableOpacity>
+          {tutorialDone && <TutorialRing inset={-5} />}
+        </View>
+      </View>
+      {tutorialDone && (
+        <View style={styles.tutReplayNote}>
+          <View style={{ width: 200 }}>
+            <Chalk size={19} weight="600" style={{ textAlign: 'right' }}>miss me already?</Chalk>
+            <Chalk size={17} weight="600" dim style={{ textAlign: 'right' }}>
+              replay the tour here
+            </Chalk>
+          </View>
+          <ChalkArrow
+            box={{ right: 10, top: -10, width: 44, height: 52 }}
+            viewBox="0 0 44 52"
+            d="M6 44 C 24 40, 34 26, 32 8"
+            head="M32 8 l-10 8 M32 8 l3.5 12"
+            strokeWidth={2.5}
+          />
+        </View>
+      )}
     </>
   );
 
@@ -765,7 +829,7 @@ export function SettingsPanel({
         />
         <View style={[styles.bottomSheet, { height: sheetHeight as ViewStyle['height'] }]}>
           <View style={styles.grabHandle} />
-          <View style={styles.header}>
+          <View style={[styles.header, tutorialDone && styles.tutDimmed]}>
             <View>
               <Text style={styles.headerTitle}>Customize</Text>
               <Text style={styles.headerSubtitle}>Markers, shuttle and court themes</Text>
@@ -780,7 +844,10 @@ export function SettingsPanel({
             </TouchableOpacity>
           </View>
 
-          <View style={styles.tabs}>
+          <View
+            style={[styles.tabs, tutorialDone && styles.tutDimmed]}
+            pointerEvents={tutorialDone ? 'none' : 'auto'}
+          >
             {(
               [
                 { key: 'players', label: 'Players', icon: 'account' },
@@ -817,6 +884,32 @@ export function SettingsPanel({
             {tab === 'court' && renderCourtTab()}
           </ScrollView>
         </View>
+
+        {tutorialDone && (
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <View style={styles.tutDotsHost}>
+              <TutorialDots current={5} done />
+            </View>
+            <View style={styles.tutChalkTop}>
+              <Chalk size={30} style={{ textAlign: 'center' }}>that&apos;s the tour —</Chalk>
+              <Chalk size={25} style={{ textAlign: 'center', marginTop: 2 }}>
+                court&apos;s yours, <AmberWord>coach</AmberWord>
+              </Chalk>
+            </View>
+            <View style={styles.tutChalkHint}>
+              <Chalk size={19} weight="600" dim style={{ textAlign: 'center' }}>
+                sliders = <AmberWord>color &amp; size</AmberWord> · one card per player
+              </Chalk>
+            </View>
+            <ChalkArrow
+              box={{ left: '40%', top: 206, width: 60, height: 105 }}
+              viewBox="0 0 60 105"
+              d="M40 8 C 12 40, 40 68, 20 97"
+              head="M20 97 l-1 -12 M20 97 l10.5 -6"
+              strokeWidth={2.5}
+            />
+          </View>
+        )}
       </View>
 
       <ProPaywall
@@ -1434,7 +1527,56 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     color: 'rgba(255, 255, 255, 0.65)',
   },
+  resetRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.sm,
+  },
+  // ⓘ beside Reset all: replays the first-run tour.
+  replayButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // ── First-run tour finale ──
+  tutDimmed: {
+    opacity: 0.35,
+  },
+  tutDotsHost: {
+    position: 'absolute',
+    top: 54,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  tutChalkTop: {
+    position: 'absolute',
+    top: 90,
+    left: 40,
+    right: 40,
+    alignItems: 'center',
+    transform: [{ rotate: '-2deg' }],
+  },
+  tutChalkHint: {
+    position: 'absolute',
+    top: 172,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    transform: [{ rotate: '-1deg' }],
+  },
+  tutReplayNote: {
+    marginTop: spacing.lg,
+    alignItems: 'flex-end',
+    paddingRight: 64,
+  },
   resetButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

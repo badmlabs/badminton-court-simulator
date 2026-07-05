@@ -3,13 +3,17 @@ appId: com.haritabhgupta.badmintoncourtsimulator
 ---
 - launchApp:
     clearState: true
-# settle: the court re-seeds once the real layout is measured right after
-# launch; swiping before that eats the gesture (flake seen locally)
+# fresh installs open on the first-run tour; the pill doubles as the
+# settle-assert (swiping before the court re-seeds eats the gesture)
+- assertVisible: "Skip tour"
+- tapOn: "Skip tour"
 - assertVisible: "Doubles.*Step 1"
 - swipe:
     start: 30%, 35%
     end: 45%, 20%
     duration: 800
+# moves are pending until Next banks them as one step
+- tapOn: "Next"
 - assertVisible: "Doubles.*Step 2"
 - tapOn: "Drills"
 - assertVisible: "My Drills"

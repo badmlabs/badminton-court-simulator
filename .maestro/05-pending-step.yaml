@@ -1,0 +1,38 @@
+# CUF: several pieces dragged before banking travel as ONE step. While moves
+# are pending the counter must not advance and the Redo slot reads Next; the
+# closing Undo proves both moves rewind as a single step, and an Undo with
+# moves pending discards them (Next reverts to Redo).
+appId: com.haritabhgupta.badmintoncourtsimulator
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Skip tour"
+- tapOn: "Skip tour"
+- assertVisible: "Doubles.*Step 1"
+- swipe:
+    start: 30%, 35%
+    end: 45%, 22%
+    duration: 800
+# pending: a piece moved but no step was committed; Next is armed
+- assertVisible: "Doubles.*Step 1"
+- assertVisible: "Next"
+- swipe:
+    start: 30%, 75%
+    end: 45%, 62%
+    duration: 800
+- assertVisible: "Doubles.*Step 1"
+# bank the accumulated moves as one step
+- tapOn: "Next"
+- assertVisible: "Doubles.*Step 2"
+- tapOn: "Undo"
+- assertVisible: "Doubles.*Step 1"
+# a fresh drag arms Next again; Undo discards the pending moves instead of
+# walking history, so the slot reverts to Redo
+- swipe:
+    start: 30%, 35%
+    end: 45%, 22%
+    duration: 800
+- assertVisible: "Next"
+- tapOn: "Undo"
+- assertVisible: "Redo"
+- assertVisible: "Doubles.*Step 1"
