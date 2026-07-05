@@ -12,11 +12,13 @@ import { courtPointFromScreen } from '../utils/court3d';
 import { useCourtPositions } from '../hooks/useCourtPositions';
 import { STEP_SET_LIMIT, useStepSets } from '../hooks/useStepSets';
 import { PositionTrail } from './PositionTrail';
-import { SettingsPanel } from './SettingsPanel';
+import { SettingsPanel, ThemeTryOnBar } from './SettingsPanel';
 import { DrillHubPanel, DrillHubTab } from './DrillHubPanel';
+import { ProPaywall } from './ProPaywall';
 import { drillStepsForCourt, VaultDrill } from '../data/vaultDrills';
 import { useVaultAccess } from '../hooks/useVaultAccess';
 import { useMarkerCustomization } from '../context/MarkerCustomizationContext';
+import { courtThemeById, shuttleStyleById } from '../constants/customization';
 import { createStepSet, decodeSharedStepSet } from '../utils/stepSharing';
 import { NormalizedStep, StepSet } from '../types/drill';
 import { palette, radii, shadows, sora, spacing } from '../constants/theme';
@@ -162,8 +164,28 @@ export default function BadmintonCourt() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [lockBannerDismissed, setLockBannerDismissed] = useState(false);
-  const { customizations, updateMarkerCustomization } = useMarkerCustomization();
+  // Theme try-on: a locked court theme previews full-screen with an unlock bar.
+  const [themeTryOn, setThemeTryOn] = useState(false);
+  const [tryOnPaywall, setTryOnPaywall] = useState(false);
+  const {
+    customizations,
+    previews,
+    clearPreviews,
+    commitPreviews,
+    previewCourtTheme,
+    effectiveLooks,
+    effectiveShuttleStyle,
+    effectiveCourtTheme,
+  } = useMarkerCustomization();
+  const courtTheme = courtThemeById(effectiveCourtTheme);
+  const shuttleStyle = shuttleStyleById(effectiveShuttleStyle);
   const vault = useVaultAccess();
+
+  // The try-on bar lives on a previewed theme; once that preview is committed
+  // (purchase) or cleared, the bar has nothing to sell.
+  useEffect(() => {
+    if (themeTryOn && !previews.courtTheme) setThemeTryOn(false);
+  }, [themeTryOn, previews.courtTheme]);
   const { stepSets, saveStepSet, deleteStepSet, replaceStepSet, importStepSet } = useStepSets({
     isPro: vault.isSubscribed,
     onLimitReached: () =>
@@ -461,7 +483,12 @@ export default function BadmintonCourt() {
       {/* Full-bleed court */}
       {!show3D && (
         <View style={StyleSheet.absoluteFill}>
-          <CourtSvg width={screenWidth} height={screenHeight} linesRect={linesRect} />
+          <CourtSvg
+            width={screenWidth}
+            height={screenHeight}
+            linesRect={linesRect}
+            theme={courtTheme}
+          />
         </View>
       )}
 
@@ -479,6 +506,7 @@ export default function BadmintonCourt() {
           showShuttleTrail={showShuttleTrail}
           shuttleSize={customizations.Shuttle.size}
           hintBottom={dockBottom + estimatedDockHeight + 12}
+          theme={courtTheme}
         />
       )}
 
@@ -503,71 +531,83 @@ export default function BadmintonCourt() {
           />
         )
       ))}
-      {!show3D && showShuttleTrail && shuttlePosition && ghostPositions?.shuttle && (
+      {/* Trail shuttle styles (Smash Trail / Night Glow) always paint their
+          comet; otherwise the standard trail follows the Shuttle toggle. */}
+      {!show3D && shuttlePosition && ghostPositions?.shuttle && (shuttleStyle.trail ? (
+        <PositionTrail
+          currentPosition={shuttlePosition}
+          ghostPosition={ghostPositions.shuttle}
+          markerSize={customizations.Shuttle.size}
+          tint={shuttleStyle.trail}
+        />
+      ) : showShuttleTrail ? (
         <PositionTrail
           currentPosition={shuttlePosition}
           ghostPosition={ghostPositions.shuttle}
           markerSize={customizations.Shuttle.size}
         />
-      )}
+      ) : null)}
 
-      {!show3D && playerPositions.team1.map((pos, index) => (
-        <PlayerMarker
-          key={`team1-${index}`}
-          position={pos}
-          color={customizations[index === 0 ? 'P1' : 'P2'].color}
-          size={customizations[index === 0 ? 'P1' : 'P2'].size}
-          isLeftHanded={customizations[index === 0 ? 'P1' : 'P2'].isLeftHanded}
-          icon={customizations[index === 0 ? 'P1' : 'P2'].icon}
-          iconType={customizations[index === 0 ? 'P1' : 'P2'].iconType}
-          linked={!!togetherMoved?.team1[index]}
-          glideMs={stepAnimationMs}
-          locked={isPlayback}
-          onPositionChange={(newPos) => updatePlayerPosition('team1', index, newPos)}
-          onPositionStart={(newPos) => updatePlayerPosition('team1', index, newPos, true)}
-          onPositionChangeComplete={handlePositionChangeComplete}
-          onColorChange={(color) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { color })}
-          onSizeChange={(size) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { size })}
-          onIconChange={(icon) => updateMarkerCustomization(index === 0 ? 'P1' : 'P2', { icon })}
-        />
-      ))}
-      {!show3D && playerPositions.team2.map((pos, index) => (
-        <PlayerMarker
-          key={`team2-${index}`}
-          position={pos}
-          color={customizations[index === 0 ? 'P3' : 'P4'].color}
-          size={customizations[index === 0 ? 'P3' : 'P4'].size}
-          isLeftHanded={customizations[index === 0 ? 'P3' : 'P4'].isLeftHanded}
-          icon={customizations[index === 0 ? 'P3' : 'P4'].icon}
-          iconType={customizations[index === 0 ? 'P3' : 'P4'].iconType}
-          linked={!!togetherMoved?.team2[index]}
-          glideMs={stepAnimationMs}
-          locked={isPlayback}
-          onPositionChange={(newPos) => updatePlayerPosition('team2', index, newPos)}
-          onPositionStart={(newPos) => updatePlayerPosition('team2', index, newPos, true)}
-          onPositionChangeComplete={handlePositionChangeComplete}
-          onColorChange={(color) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { color })}
-          onSizeChange={(size) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { size })}
-          onIconChange={(icon) => updateMarkerCustomization(index === 0 ? 'P3' : 'P4', { icon })}
-        />
-      ))}
+      {!show3D && playerPositions.team1.map((pos, index) => {
+        const id = index === 0 ? 'P1' : 'P2';
+        return (
+          <PlayerMarker
+            key={`team1-${index}`}
+            position={pos}
+            color={customizations[id].color}
+            size={customizations[id].size}
+            isLeftHanded={customizations[id].isLeftHanded}
+            icon={customizations[id].icon}
+            iconType={customizations[id].iconType}
+            look={effectiveLooks[id]}
+            label={id.slice(1)}
+            linked={!!togetherMoved?.team1[index]}
+            glideMs={stepAnimationMs}
+            locked={isPlayback}
+            onPositionChange={(newPos) => updatePlayerPosition('team1', index, newPos)}
+            onPositionStart={(newPos) => updatePlayerPosition('team1', index, newPos, true)}
+            onPositionChangeComplete={handlePositionChangeComplete}
+          />
+        );
+      })}
+      {!show3D && playerPositions.team2.map((pos, index) => {
+        const id = index === 0 ? 'P3' : 'P4';
+        return (
+          <PlayerMarker
+            key={`team2-${index}`}
+            position={pos}
+            color={customizations[id].color}
+            size={customizations[id].size}
+            isLeftHanded={customizations[id].isLeftHanded}
+            icon={customizations[id].icon}
+            iconType={customizations[id].iconType}
+            look={effectiveLooks[id]}
+            label={id.slice(1)}
+            linked={!!togetherMoved?.team2[index]}
+            glideMs={stepAnimationMs}
+            locked={isPlayback}
+            onPositionChange={(newPos) => updatePlayerPosition('team2', index, newPos)}
+            onPositionStart={(newPos) => updatePlayerPosition('team2', index, newPos, true)}
+            onPositionChangeComplete={handlePositionChangeComplete}
+          />
+        );
+      })}
 
       {!show3D && (
         <PlayerMarker
           position={shuttlePosition}
-          color={customizations.Shuttle.color}
+          color={shuttleStyle.bg}
+          ringColor={shuttleStyle.ring}
+          contentColor={shuttleStyle.glyph}
           size={customizations.Shuttle.size}
-          icon={customizations.Shuttle.icon}
-          iconType={customizations.Shuttle.iconType}
+          icon="badminton"
+          iconType="icon"
           linked={!!togetherMoved?.shuttle}
           glideMs={stepAnimationMs}
           locked={isPlayback}
           onPositionChange={updateShuttlePosition}
           onPositionStart={(newPos) => updateShuttlePosition(newPos, true)}
           onPositionChangeComplete={handlePositionChangeComplete}
-          onColorChange={(color) => updateMarkerCustomization('Shuttle', { color })}
-          onSizeChange={(size) => updateMarkerCustomization('Shuttle', { size })}
-          onIconChange={(icon) => updateMarkerCustomization('Shuttle', { icon })}
         />
       )}
 
@@ -802,13 +842,43 @@ export default function BadmintonCourt() {
         />
       </View>
 
+      {/* Theme try-on: dots + unlock bar over the live court */}
+      {themeTryOn && (
+        <ThemeTryOnBar
+          bottom={dockBottom + estimatedDockHeight + 14}
+          isSubscribed={vault.isSubscribed}
+          onUnlock={() => setTryOnPaywall(true)}
+          onClose={() => {
+            previewCourtTheme(null);
+            setThemeTryOn(false);
+          }}
+        />
+      )}
+
       <SettingsPanel
         isVisible={isMenuVisible}
-        onClose={() => setIsMenuVisible(false)}
+        onClose={() => {
+          setIsMenuVisible(false);
+          // Closing the sheet ends every try-before-you-buy preview.
+          clearPreviews();
+        }}
         isDoubles={isDoubles}
         onGameModeChange={toggleGameMode}
         stepAnimationMs={stepAnimationMs}
         onStepAnimationChange={setStepAnimationMs}
+        vault={vault}
+        onStartThemeTryOn={() => {
+          setIsMenuVisible(false);
+          clearPreviews({ keepCourtTheme: true });
+          setThemeTryOn(true);
+        }}
+      />
+
+      <ProPaywall
+        visible={tryOnPaywall}
+        onClose={() => setTryOnPaywall(false)}
+        vault={vault}
+        onSubscribed={commitPreviews}
       />
 
       <DrillHubPanel

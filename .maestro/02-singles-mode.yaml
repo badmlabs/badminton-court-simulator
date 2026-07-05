@@ -6,6 +6,8 @@ appId: com.haritabhgupta.badmintoncourtsimulator
     clearState: true
 - assertVisible: "Doubles.*Step 1"
 - tapOn: "Customize"
+# game mode lives on the Court tab of the tabbed Customize sheet
+- tapOn: "Court tab"
 - assertVisible: "Game mode"
 - tapOn: "Singles"
 # the mode switch re-seeds the court and races the Back key, so close

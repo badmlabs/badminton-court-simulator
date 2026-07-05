@@ -1,26 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { Animated, Easing, View, StyleSheet, GestureResponderEvent, Modal, TouchableOpacity, Text, Dimensions, Image } from 'react-native';
-import { Text as PaperText } from 'react-native-paper';
+import { Animated, Easing, StyleSheet, GestureResponderEvent, Text, Image } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { AppSlider } from './AppSlider';
+import { isMascot, LookId } from '../constants/customization';
+import { MascotView, MASCOT_ASPECT } from './mascots';
 import {
-  markerColors,
   markerContentColor,
   markerRingColor,
   palette,
-  radii,
-  shadows,
   sora,
-  spacing,
 } from '../constants/theme';
 
 interface PlayerMarkerProps {
   position: { x: number; y: number };
   color: string;
   size?: number;
+  /** Full-body mascot looks mirror for left-handed players. */
   isLeftHanded?: boolean;
   icon?: string;
   iconType?: 'icon' | 'text' | 'photo';
+  /** Selected look; mascot looks render the full-body figure. */
+  look?: LookId;
+  /** Number shown on a mascot's chest chip ("1"…"4"). */
+  label?: string;
+  /** Ring/glyph overrides for shuttle styles; default derives from color. */
+  ringColor?: string;
+  contentColor?: string;
   /** Amber ring: this piece is part of the armed Together step. */
   linked?: boolean;
   /** Duration of the glide between steps (ms); user-tunable in Customize. */
@@ -30,42 +34,31 @@ interface PlayerMarkerProps {
   onPositionChange?: (newPosition: { x: number; y: number }) => void;
   onPositionStart?: (newPosition: { x: number; y: number }) => void;
   onPositionChangeComplete?: () => void;
-  onColorChange?: (color: string) => void;
-  onSizeChange?: (size: number) => void;
-  onIconChange?: (icon: string) => void;
   initialSize?: number;
 }
-
-const availableIcons = [
-  'account', 'account-circle', 'account-group', 'badminton', 'run',
-  'run-fast', 'walk', 'human-handsup', 'karate', 'soccer',
-  'basketball', 'volleyball', 'tennis', 'star', 'heart'
-];
 
 export function PlayerMarker({
   position,
   color,
   size,
-  isLeftHanded,
+  isLeftHanded = false,
   icon = 'account',
   iconType = 'icon',
+  look = 'classic',
+  label,
+  ringColor,
+  contentColor,
   linked = false,
   glideMs = 260,
   locked = false,
   onPositionChange,
   onPositionStart,
   onPositionChangeComplete,
-  onColorChange,
-  onSizeChange,
-  onIconChange,
   initialSize = 30
 }: PlayerMarkerProps) {
   const [touchOffset, setTouchOffset] = useState({ x: 0, y: 0 });
   const [isLifted, setIsLifted] = useState(false);
-  const [showCustomizationMenu, setShowCustomizationMenu] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
-  const longPressTimeout = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [markerSize, setMarkerSize] = useState(size || initialSize);
+  const markerSize = size ?? initialSize;
   const translate = React.useRef(new Animated.ValueXY({ x: position.x, y: position.y })).current;
 
   // While the finger is down the marker must track it 1:1; any other position
@@ -86,249 +79,125 @@ export function PlayerMarker({
     }
   }, [glideMs, isLifted, targetX, targetY, translate]);
 
-  // Update internal markerSize when size prop changes
-  useEffect(() => {
-    if (size !== undefined) {
-      setMarkerSize(size);
-    }
-  }, [size]);
+  const mascot = isMascot(look) ? look : null;
+  const glyphColor = contentColor ?? markerContentColor(color);
 
-  const getAdjustedMenuPosition = (touchX: number, touchY: number) => {
-    const screen = Dimensions.get('window');
-    const menuWidth = 300;
-    const menuHeight = 400;
-    const margin = 10;
-
-    let x = touchX - menuWidth / 2;
-    let y = touchY - 50;
-
-    if (x + menuWidth > screen.width - margin) {
-      x = screen.width - menuWidth - margin;
-    }
-    if (x < margin) {
-      x = margin;
-    }
-
-    if (y + menuHeight > screen.height - margin) {
-      y = touchY - menuHeight;
-    }
-    if (y < margin) {
-      y = touchY + 20;
-    }
-
-    return { x, y };
-  };
-
-  const contentColor = markerContentColor(color);
+  // The touch/positioning box stays size x size for every look, so drill
+  // coordinates, trails and 3D pins are look-agnostic; the taller mascot
+  // figure is drawn centered on that box and overflows it visually.
+  const mascotHeight = markerSize * MASCOT_ASPECT;
 
   return (
-    <>
-      <Animated.View
-        style={[
-          styles.marker,
-          {
-            backgroundColor: color,
-            borderColor: linked ? palette.accent : markerRingColor(color),
-            borderWidth: linked ? 3 : 2.5,
+    <Animated.View
+      style={[
+        styles.marker,
+        mascot
+          ? styles.mascotBox
+          : {
+              backgroundColor: color,
+              borderColor: linked ? palette.accent : ringColor ?? markerRingColor(color),
+              borderWidth: linked ? 3 : 2.5,
+              shadowOpacity: isLifted ? 0.6 : 0.35,
+              shadowRadius: isLifted ? 10 : 5,
+              elevation: isLifted ? 10 : 4,
+            },
+        mascot && linked && styles.mascotLinked,
+        {
+          width: markerSize,
+          height: markerSize,
+          borderRadius: markerSize / 2,
+          transform: [
+            ...translate.getTranslateTransform(),
+            { scale: isLifted ? 1.12 : 1 },
+          ],
+        },
+      ]}
+      onStartShouldSetResponder={() => !locked}
+      onMoveShouldSetResponder={() => !locked}
+      onResponderGrant={(event: GestureResponderEvent) => {
+        const touch = event.nativeEvent;
+        setTouchOffset({
+          x: touch.pageX - position.x,
+          y: touch.pageY - position.y,
+        });
+        onPositionStart?.(position);
+        setIsLifted(true);
+      }}
+      onResponderMove={(event: GestureResponderEvent) => {
+        const touch = event.nativeEvent;
+        onPositionChange?.({
+          x: touch.pageX - touchOffset.x,
+          y: touch.pageY - touchOffset.y,
+        });
+      }}
+      onResponderRelease={() => {
+        onPositionChangeComplete?.();
+        setIsLifted(false);
+      }}
+    >
+      {!mascot && (
+        <>
+          {iconType === 'icon' && (
+            <MaterialCommunityIcons
+              name={icon as any}
+              size={markerSize * 0.48}
+              color={glyphColor}
+            />
+          )}
+          {iconType === 'text' && (
+            <Text style={[
+              styles.textIcon,
+              {
+                fontSize: markerSize * 0.4,
+                color: glyphColor,
+              }
+            ]}>
+              {icon}
+            </Text>
+          )}
+          {iconType === 'photo' && (
+            <Image
+              source={{ uri: icon }}
+              style={[
+                styles.photoIcon,
+                {
+                  width: markerSize * 0.8,
+                  height: markerSize * 0.8,
+                  borderRadius: markerSize * 0.4,
+                }
+              ]}
+            />
+          )}
+        </>
+      )}
+      {mascot != null && (
+        // The taller figure is drawn centered on the round touch box.
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: (markerSize - mascotHeight) / 2,
+            left: 0,
             width: markerSize,
-            height: markerSize,
-            borderRadius: markerSize / 2,
-            transform: [
-              ...translate.getTranslateTransform(),
-              { scale: isLifted ? 1.12 : 1 },
-            ],
-            shadowOpacity: isLifted ? 0.6 : 0.35,
-            shadowRadius: isLifted ? 10 : 5,
-            elevation: isLifted ? 10 : 4,
-            opacity: 1,
-          },
-        ]}
-        onStartShouldSetResponder={() => !locked}
-        onMoveShouldSetResponder={() => !locked}
-        onResponderGrant={(event: GestureResponderEvent) => {
-          const touch = event.nativeEvent;
-          setTouchOffset({
-            x: touch.pageX - position.x,
-            y: touch.pageY - position.y,
-          });
-          
-          longPressTimeout.current = setTimeout(() => {
-            const adjustedPosition = getAdjustedMenuPosition(touch.pageX, touch.pageY);
-            setMenuPosition(adjustedPosition);
-            setShowCustomizationMenu(true);
-          }, 500);
-
-          onPositionStart?.(position);
-          setIsLifted(true);
-        }}
-        onResponderMove={(event: GestureResponderEvent) => {
-          // Clear long press timeout if movement starts
-          if (longPressTimeout.current) {
-            clearTimeout(longPressTimeout.current);
-          }
-          
-          const touch = event.nativeEvent;
-          const newPosition = {
-            x: touch.pageX - touchOffset.x,
-            y: touch.pageY - touchOffset.y,
-          };
-          onPositionChange?.(newPosition);
-        }}
-        onResponderRelease={() => {
-          if (longPressTimeout.current) {
-            clearTimeout(longPressTimeout.current);
-          }
-          onPositionChangeComplete?.();
-          setIsLifted(false);
-        }}
-      >
-        {iconType === 'icon' && (
-          <MaterialCommunityIcons
-            name={icon as any}
-            size={markerSize * 0.48}
-            color={contentColor}
-          />
-        )}
-        {iconType === 'text' && (
-          <Text style={[
-            styles.textIcon,
-            {
-              fontSize: markerSize * 0.4,
-              color: contentColor,
-            }
-          ]}>
-            {icon}
-          </Text>
-        )}
-        {iconType === 'photo' && (
-          <Image
-            source={{ uri: icon }}
-            style={[
-              styles.photoIcon,
-              {
-                width: markerSize * 0.8,
-                height: markerSize * 0.8,
-                borderRadius: markerSize * 0.4,
-              }
-            ]}
-          />
-        )}
-      </Animated.View>
-
-      <Modal
-        visible={showCustomizationMenu}
-        transparent={true}
-        onRequestClose={() => setShowCustomizationMenu(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowCustomizationMenu(false)}
+            height: mascotHeight,
+          }}
         >
-          <View
-            style={[
-              styles.customizationMenu,
-              {
-                top: menuPosition.y,
-                left: menuPosition.x,
-              }
-            ]}
-          >
-            <PaperText variant="titleMedium" style={styles.menuTitle}>
-              Customize marker
-            </PaperText>
-            
-            <View style={styles.section}>
-              <PaperText variant="bodyMedium" style={styles.sectionTitle}>
-                Color
-              </PaperText>
-              <View style={styles.colorGrid}>
-                {markerColors.map((colorOption) => (
-                  <TouchableOpacity
-                    key={colorOption.value}
-                    style={[
-                      styles.colorOption,
-                      { backgroundColor: colorOption.value },
-                      color === colorOption.value && styles.selectedColorOption,
-                    ]}
-                    onPress={() => {
-                      onColorChange?.(colorOption.value);
-                    }}
-                  >
-                    {color === colorOption.value && (
-                      <MaterialCommunityIcons 
-                        name="check" 
-                        size={16} 
-                        color={markerContentColor(colorOption.value)} 
-                      />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <PaperText variant="bodyMedium" style={styles.sectionTitle}>
-                Icon
-              </PaperText>
-              <View style={styles.iconGrid}>
-                {availableIcons.map((iconOption) => (
-                  <TouchableOpacity
-                    key={iconOption}
-                    style={[
-                      styles.iconOption,
-                      icon === iconOption && styles.selectedIconOption
-                    ]}
-                    onPress={() => {
-                      onIconChange?.(iconOption);
-                    }}
-                  >
-                    <MaterialCommunityIcons 
-                      name={iconOption as any} 
-                      size={22} 
-                      color={icon === iconOption ? palette.accent : palette.textSecondary} 
-                    />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-            
-            <View style={styles.section}>
-              <PaperText variant="bodyMedium" style={styles.sectionTitle}>
-                Size
-              </PaperText>
-              <AppSlider
-                style={styles.slider}
-                minimumValue={20}
-                maximumValue={60}
-                value={markerSize}
-                onValueChange={(value: number) => {
-                  setMarkerSize(value);
-                  onSizeChange?.(value);
-                }}
-              />
-              <PaperText variant="bodySmall" style={styles.sizeValue}>
-                {Math.round(markerSize)}px
-              </PaperText>
-            </View>
-
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setShowCustomizationMenu(false)}
-            >
-              <Text style={styles.closeButtonText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </>
+          <MascotView
+            mascot={mascot}
+            band={color}
+            label={label}
+            width={markerSize}
+            flipped={isLeftHanded}
+          />
+        </Animated.View>
+      )}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   marker: {
     position: 'absolute',
-    borderWidth: 2.5,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -336,99 +205,13 @@ const styles = StyleSheet.create({
     },
     justifyContent: 'center',
     alignItems: 'center',
-    opacity: 1,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: palette.overlay,
+  mascotBox: {
+    backgroundColor: 'transparent',
   },
-  customizationMenu: {
-    position: 'absolute',
-    backgroundColor: palette.surfaceRaised,
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    width: 300,
-    maxHeight: 420,
-    borderWidth: 1,
-    borderColor: palette.hairline,
-    ...shadows.floating,
-  },
-  menuTitle: {
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-    fontWeight: '700',
-    color: palette.textPrimary,
-  },
-  section: {
-    marginBottom: spacing.lg,
-  },
-  sectionTitle: {
-    marginBottom: spacing.sm,
-    fontWeight: '600',
-    color: palette.textSecondary,
-    textTransform: 'uppercase',
-    fontSize: 11,
-    letterSpacing: 1,
-  },
-  colorGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    justifyContent: 'center',
-  },
-  colorOption: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectedColorOption: {
-    borderColor: palette.textPrimary,
-  },
-  iconGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    justifyContent: 'center',
-  },
-  iconOption: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: palette.hairline,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: palette.surfaceSunken,
-  },
-  selectedIconOption: {
+  mascotLinked: {
+    borderWidth: 3,
     borderColor: palette.accent,
-    backgroundColor: palette.accentSoft,
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  sizeValue: {
-    textAlign: 'center',
-    marginTop: spacing.xs,
-    color: palette.textSecondary,
-  },
-  closeButton: {
-    marginTop: spacing.xs,
-    backgroundColor: palette.accent,
-    borderRadius: radii.pill,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  closeButtonText: {
-    ...sora('700'),
-    color: palette.onAccent,
-    fontSize: 15,
-    letterSpacing: 0.3,
   },
   textIcon: {
     ...sora('700'),
