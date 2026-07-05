@@ -12,6 +12,8 @@ interface PositionTrailProps {
    * shift color toward the marker, and the ghost ring is dropped.
    */
   tint?: string[];
+  /** Tutorial: lift the trail above the scrim with its marker. */
+  elevated?: boolean;
 }
 
 // Match Point trails: thin dashed white path + ghost ring at the prior spot.
@@ -22,6 +24,7 @@ export function PositionTrail({
   ghostPosition,
   markerSize = 46,
   tint,
+  elevated = false,
 }: PositionTrailProps) {
   const half = markerSize / 2;
   // Calculate the angle and length of the line
@@ -42,6 +45,7 @@ export function PositionTrail({
         key={i}
         style={[
           styles.dot,
+          elevated && styles.elevated,
           {
             left: ghostPosition.x + half - dotSize / 2 + (i * DOT_SPACING * Math.cos(angle * Math.PI / 180)),
             top: ghostPosition.y + half - dotSize / 2 + (i * DOT_SPACING * Math.sin(angle * Math.PI / 180)),
@@ -65,6 +69,7 @@ export function PositionTrail({
         <View
           style={[
             styles.ghostMarker,
+            elevated && styles.elevated,
             {
               left: ghostPosition.x + half - 10,
               top: ghostPosition.y + half - 10,
@@ -79,6 +84,10 @@ export function PositionTrail({
 }
 
 const styles = StyleSheet.create({
+  elevated: {
+    zIndex: 40,
+    elevation: 40,
+  },
   dot: {
     position: 'absolute',
   },

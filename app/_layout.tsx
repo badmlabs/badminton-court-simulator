@@ -10,6 +10,7 @@ import {
   Sora_600SemiBold,
   Sora_700Bold,
 } from '@expo-google-fonts/sora';
+import { Caveat_600SemiBold, Caveat_700Bold } from '@expo-google-fonts/caveat';
 import { MarkerCustomizationProvider } from '../context/MarkerCustomizationContext';
 import { AppAlertHost } from '../utils/appAlert';
 import { palette, paperTheme } from '../constants/theme';
@@ -22,6 +23,9 @@ export default function RootLayout() {
     Sora_400Regular,
     Sora_600SemiBold,
     Sora_700Bold,
+    // Chalk handwriting for the first-run tutorial coach-marks.
+    Caveat_600SemiBold,
+    Caveat_700Bold,
   });
 
   useEffect(() => {

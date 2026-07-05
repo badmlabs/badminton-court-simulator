@@ -4,6 +4,9 @@ appId: com.haritabhgupta.badmintoncourtsimulator
 ---
 - launchApp:
     clearState: true
+# fresh installs open on the first-run tour
+- assertVisible: "Skip tour"
+- tapOn: "Skip tour"
 - tapOn: "Drills"
 - tapOn: "Drill Vault"
 - assertVisible: "Four-Corner Shadow"

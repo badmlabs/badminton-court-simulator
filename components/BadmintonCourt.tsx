@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Dimensions, Text, Pressable, LayoutChangeEvent } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appAlert } from '../utils/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -21,10 +22,14 @@ import { useMarkerCustomization } from '../context/MarkerCustomizationContext';
 import { courtThemeById, shuttleStyleById } from '../constants/customization';
 import { createStepSet, decodeSharedStepSet } from '../utils/stepSharing';
 import { maybeAskQuarterlyReview } from '../utils/reviewPrompt';
+import { CourtTutorial, TutorialRing } from './TutorialOverlay';
 import { NormalizedStep, StepSet } from '../types/drill';
 import { palette, radii, shadows, sora, spacing } from '../constants/theme';
 
 const HEADER_HEIGHT = 44;
+// First-run tour: shown until completed or skipped once (also covers the
+// upgrade that shipped it, since existing installs have no flag yet).
+const TUTORIAL_SEEN_KEY = 'tutorial-v1-seen';
 const DOCK_PADDING = 10;
 const LINES_SIDE_INSET = 30;
 const LINES_GAP = 16;
@@ -41,8 +46,8 @@ const liveApplyImport: {
   current: ((stepSet: StepSet, replaceId?: string) => void) | null;
 } = { current: null };
 
-// Steps where more than one piece moved vs the previous step (Together steps).
-function countTogetherSteps(steps: NormalizedStep[]): number {
+// Steps where more than one piece moved vs the previous step.
+function countMultiPieceSteps(steps: NormalizedStep[]): number {
   let count = 0;
   for (let i = 1; i < steps.length; i++) {
     const prev = steps[i - 1];
@@ -67,14 +72,14 @@ interface LoadedDrillMeta {
 }
 
 const stepSetMeta = (stepSet: StepSet): LoadedDrillMeta => {
-  const together = countTogetherSteps(stepSet.steps);
+  const multi = countMultiPieceSteps(stepSet.steps);
   return {
     name: stepSet.name,
     chips: [
       `${stepSet.steps.length} steps`,
       stepSet.isDoubles ? 'Doubles' : 'Singles',
-      ...(together > 0
-        ? [`${together} together ${together === 1 ? 'step' : 'steps'}`]
+      ...(multi > 0
+        ? [`${multi} multi-piece ${multi === 1 ? 'step' : 'steps'}`]
         : []),
       `Saved ${new Date(stepSet.createdAt).toLocaleDateString(undefined, {
         day: 'numeric',
@@ -208,10 +213,8 @@ export default function BadmintonCourt() {
     updatePlayerPosition,
     updateShuttlePosition,
     handlePositionChangeComplete,
-    isTogether,
-    toggleTogether,
-    cancelTogether,
-    togetherMoved,
+    hasPending,
+    bankStep,
     isPlayback,
     exitPlayback,
     goToStart,
@@ -232,10 +235,6 @@ export default function BadmintonCourt() {
     stepCount,
     totalSteps,
   } = useCourtPositions(courtDimensions);
-
-  const togetherCount = togetherMoved
-    ? [...togetherMoved.team1, ...togetherMoved.team2, togetherMoved.shuttle].filter(Boolean).length
-    : 0;
 
   // ── Tilt-to-3D ─────────────────────────────────────────────────────────
   // `tilt` is the 2D↔3D blend b; toggling tweens it, and the 3D layer stays
@@ -276,6 +275,50 @@ export default function BadmintonCourt() {
   };
 
   const show3D = is3D || tilt > 0.001;
+
+  // ── First-run tutorial ─────────────────────────────────────────────────
+  // null = off; 0-5 = the six pages; 6 = the done page inside Customize.
+  // Pages advance on the real control's tap, so the state machine is just
+  // "which control is live" + a few advance hooks below.
+  const [tutorialStep, setTutorialStep] = useState<number | null>(null);
+  const inTutorial = tutorialStep !== null;
+
+  useEffect(() => {
+    AsyncStorage.getItem(TUTORIAL_SEEN_KEY)
+      .then((seen) => {
+        if (!seen) setTutorialStep(0);
+      })
+      .catch(() => {});
+  }, []);
+
+  const finishTutorial = useCallback(() => {
+    AsyncStorage.setItem(TUTORIAL_SEEN_KEY, '1').catch(() => {});
+    setTutorialStep(null);
+  }, []);
+
+  const replayTutorial = () => {
+    setIsMenuVisible(false);
+    setDrillHubTab(null);
+    setMode3D(false);
+    // a loaded drill locks the pieces; page 1 needs Player 1 draggable
+    setIsPlaying(false);
+    setLoadedDrill(null);
+    exitPlayback();
+    setTutorialStep(0);
+  };
+
+  // Which piece may be dragged on the current page (0: only Player 1 — the
+  // page teaches the drag; 1: all — "move a few pieces").
+  const tutorialLocksPiece = (team: 'team1' | 'team2' | 'shuttle', index = 0) => {
+    if (!inTutorial) return false;
+    if (tutorialStep === 0) return !(team === 'team1' && index === 0);
+    return tutorialStep !== 1;
+  };
+  const tutorialAllows = (target: 'next' | 'drills' | 'customize') =>
+    !inTutorial ||
+    (target === 'next' && tutorialStep === 1) ||
+    (target === 'drills' && tutorialStep === 2) ||
+    (target === 'customize' && tutorialStep === 5);
 
   // Current history rendered as court-unit pins (positions are view top-left).
   const steps3d: Step3D[] = useMemo(() => {
@@ -347,6 +390,31 @@ export default function BadmintonCourt() {
     return () => clearInterval(id);
   }, [canRedo, goToStart, isPlayback, isPlaying, redo, stepAnimationMs]);
 
+  // Tutorial page 1 completes when Player 1's drop leaves a pending move.
+  const onPieceDropped = useCallback(() => {
+    handlePositionChangeComplete();
+    if (tutorialStep === 0 && hasPending) setTutorialStep(1);
+  }, [handlePositionChangeComplete, hasPending, tutorialStep]);
+
+  // Page 2: Next banks the pending step.
+  const handleBankStep = useCallback(() => {
+    bankStep();
+    if (tutorialStep === 1) setTutorialStep(2);
+  }, [bankStep, tutorialStep]);
+
+  // Page 5 ends with the saved drill auto-running; once the run reaches its
+  // last step, hand the court back (silent Fork) so the finale starts from a
+  // normal editing state.
+  useEffect(() => {
+    if (tutorialStep !== 5 || !isPlayback || !isPlaying || canRedo) return;
+    const t = setTimeout(() => {
+      setIsPlaying(false);
+      setLoadedDrill(null);
+      exitPlayback();
+    }, 700);
+    return () => clearTimeout(t);
+  }, [tutorialStep, isPlayback, isPlaying, canRedo, exitPlayback]);
+
   const togglePlay = useCallback(() => {
     if (isPlaying) {
       setIsPlaying(false);
@@ -388,13 +456,14 @@ export default function BadmintonCourt() {
   }, [loadNormalizedSteps]);
 
   const applyImport = useCallback(async (stepSet: StepSet, replaceId?: string) => {
+    if (inTutorial) finishTutorial(); // a share import mid-tour would deadlock it
     const saved = replaceId
       ? await replaceStepSet(replaceId, stepSet)
       : await importStepSet(stepSet);
     if (!saved) return; // drill limit reached; the hook already alerted
     beginPlayback(saved.steps, saved.isDoubles, stepSetMeta(saved));
     appAlert('Imported', `"${saved.name}" has been imported and loaded.`);
-  }, [beginPlayback, importStepSet, replaceStepSet]);
+  }, [beginPlayback, finishTutorial, importStepSet, inTutorial, replaceStepSet]);
 
   useEffect(() => {
     liveApplyImport.current = applyImport;
@@ -456,12 +525,20 @@ export default function BadmintonCourt() {
       width: screenWidth,
       height: screenHeight,
     });
-    return (await saveStepSet(stepSet)) !== null;
-  }, [getStepsSnapshot, isDoubles, saveStepSet, screenHeight, screenWidth]);
+    const saved = (await saveStepSet(stepSet)) !== null;
+    if (saved && tutorialStep === 3) setTutorialStep(4);
+    return saved;
+  }, [getStepsSnapshot, isDoubles, saveStepSet, screenHeight, screenWidth, tutorialStep]);
 
   const handleLoadStepSet = useCallback((stepSet: StepSet) => {
     beginPlayback(stepSet.steps, stepSet.isDoubles, stepSetMeta(stepSet));
-  }, [beginPlayback]);
+    if (tutorialStep === 4) {
+      // page 6's payoff: watch the drill run, then the tour points at Customize
+      loopHoldRef.current = 0;
+      setIsPlaying(true);
+      setTutorialStep(5);
+    }
+  }, [beginPlayback, tutorialStep]);
 
   // Vault drills are authored in a fixed court frame; remap them onto the
   // measured lines rect so they land on the painted court of this device.
@@ -523,6 +600,7 @@ export default function BadmintonCourt() {
             currentPosition={pos}
             ghostPosition={ghostPositions.team1[index]!}
             markerSize={customizations[index === 0 ? 'P1' : 'P2'].size}
+            elevated={tutorialStep === 1}
           />
         )
       ))}
@@ -533,6 +611,7 @@ export default function BadmintonCourt() {
             currentPosition={pos}
             ghostPosition={ghostPositions.team2[index]!}
             markerSize={customizations[index === 0 ? 'P3' : 'P4'].size}
+            elevated={tutorialStep === 1}
           />
         )
       ))}
@@ -550,6 +629,7 @@ export default function BadmintonCourt() {
           currentPosition={shuttlePosition}
           ghostPosition={ghostPositions.shuttle}
           markerSize={customizations.Shuttle.size}
+          elevated={tutorialStep === 1}
         />
       ) : null)}
 
@@ -566,12 +646,12 @@ export default function BadmintonCourt() {
             iconType={customizations[id].iconType}
             look={effectiveLooks[id]}
             label={id.slice(1)}
-            linked={!!togetherMoved?.team1[index]}
             glideMs={stepAnimationMs}
-            locked={isPlayback}
+            locked={isPlayback || tutorialLocksPiece('team1', index)}
+            elevated={(tutorialStep === 0 && index === 0) || tutorialStep === 1}
             onPositionChange={(newPos) => updatePlayerPosition('team1', index, newPos)}
             onPositionStart={(newPos) => updatePlayerPosition('team1', index, newPos, true)}
-            onPositionChangeComplete={handlePositionChangeComplete}
+            onPositionChangeComplete={onPieceDropped}
           />
         );
       })}
@@ -588,12 +668,12 @@ export default function BadmintonCourt() {
             iconType={customizations[id].iconType}
             look={effectiveLooks[id]}
             label={id.slice(1)}
-            linked={!!togetherMoved?.team2[index]}
             glideMs={stepAnimationMs}
-            locked={isPlayback}
+            locked={isPlayback || tutorialLocksPiece('team2', index)}
+            elevated={tutorialStep === 1}
             onPositionChange={(newPos) => updatePlayerPosition('team2', index, newPos)}
             onPositionStart={(newPos) => updatePlayerPosition('team2', index, newPos, true)}
-            onPositionChangeComplete={handlePositionChangeComplete}
+            onPositionChangeComplete={onPieceDropped}
           />
         );
       })}
@@ -607,21 +687,28 @@ export default function BadmintonCourt() {
           size={customizations.Shuttle.size}
           icon="badminton"
           iconType="icon"
-          linked={!!togetherMoved?.shuttle}
           glideMs={stepAnimationMs}
-          locked={isPlayback}
+          locked={isPlayback || tutorialLocksPiece('shuttle')}
+          elevated={tutorialStep === 1}
           onPositionChange={updateShuttlePosition}
           onPositionStart={(newPos) => updateShuttlePosition(newPos, true)}
-          onPositionChangeComplete={handlePositionChangeComplete}
+          onPositionChangeComplete={onPieceDropped}
         />
       )}
 
       {/* Floating header: mode/drill pill + 2D/3D switch + customize button
           (stays Settings in playback too; the banner ✕ is the only dismiss
           control) */}
-      <View style={[styles.header, { marginTop: headerTop }]} pointerEvents="box-none">
+      <View
+        style={[styles.header, { marginTop: headerTop }, tutorialStep === 5 && styles.liftedChrome]}
+        pointerEvents="box-none"
+      >
         {isPlayback && loadedDrill ? (
-          <Pressable style={styles.namePill} onPress={() => setInfoOpen((open) => !open)}>
+          <Pressable
+            style={[styles.namePill, inTutorial && styles.tutorialDimmed]}
+            disabled={inTutorial}
+            onPress={() => setInfoOpen((open) => !open)}
+          >
             <MaterialCommunityIcons name="playlist-play" size={17} color={palette.textPrimary} />
             <Text style={styles.namePillLabel} numberOfLines={1}>
               {loadedDrill.name}
@@ -643,7 +730,7 @@ export default function BadmintonCourt() {
             </View>
           </Pressable>
         ) : (
-          <View style={styles.modePill}>
+          <View style={[styles.modePill, inTutorial && tutorialStep !== 2 && styles.tutorialDimmed]}>
             <MaterialCommunityIcons name="badminton" size={18} color={palette.textPrimary} />
             <Text style={styles.modePillLabel} numberOfLines={1}>
               {isDoubles ? 'Doubles' : 'Singles'} · Step {stepCount}
@@ -652,14 +739,16 @@ export default function BadmintonCourt() {
           </View>
         )}
         <View style={styles.headerActions}>
-          <View style={styles.modeSegment}>
+          <View style={[styles.modeSegment, inTutorial && styles.tutorialDimmed]}>
             <Pressable
+              disabled={inTutorial}
               onPress={() => setMode3D(false)}
               style={[styles.segmentBtn, !is3D && styles.segmentBtnActive]}
             >
               <Text style={[styles.segmentText, !is3D && styles.segmentTextActive]}>2D</Text>
             </Pressable>
             <Pressable
+              disabled={inTutorial}
               onPress={() => setMode3D(true)}
               style={[styles.segmentBtn, is3D && styles.segmentBtnActive]}
             >
@@ -667,10 +756,15 @@ export default function BadmintonCourt() {
             </Pressable>
           </View>
           <Pressable
+            disabled={inTutorial}
             onPress={() => setDrillHubTab('vault')}
             hitSlop={8}
             accessibilityLabel="Drill Vault"
-            style={({ pressed }) => [styles.headerAction, pressed && styles.glassPressed]}
+            style={({ pressed }) => [
+              styles.headerAction,
+              pressed && styles.glassPressed,
+              inTutorial && styles.tutorialDimmed,
+            ]}
           >
             <MaterialCommunityIcons name="treasure-chest" size={20} color={palette.accent} />
             {vault.isSubscribed && (
@@ -679,14 +773,25 @@ export default function BadmintonCourt() {
               </View>
             )}
           </Pressable>
-          <Pressable
-            onPress={() => setIsMenuVisible(true)}
-            hitSlop={8}
-            accessibilityLabel="Customize"
-            style={({ pressed }) => [styles.headerAction, pressed && styles.glassPressed]}
-          >
-            <MaterialCommunityIcons name="tune-variant" size={20} color={palette.textPrimary} />
-          </Pressable>
+          <View>
+            <Pressable
+              disabled={!tutorialAllows('customize')}
+              onPress={() => {
+                if (tutorialStep === 5) {
+                  // reaching the finale counts as seen even if the app dies here
+                  AsyncStorage.setItem(TUTORIAL_SEEN_KEY, '1').catch(() => {});
+                  setTutorialStep(6);
+                }
+                setIsMenuVisible(true);
+              }}
+              hitSlop={8}
+              accessibilityLabel="Customize"
+              style={({ pressed }) => [styles.headerAction, pressed && styles.glassPressed]}
+            >
+              <MaterialCommunityIcons name="tune-variant" size={20} color={palette.textPrimary} />
+            </Pressable>
+            {tutorialStep === 5 && <TutorialRing inset={-7} />}
+          </View>
         </View>
       </View>
 
@@ -747,27 +852,17 @@ export default function BadmintonCourt() {
         </View>
       )}
 
-      {/* Armed-Together banner (visual only; never blocks drags underneath) */}
-      {!show3D && isTogether && (
-        <View
-          style={[styles.togetherBanner, { top: headerTop + HEADER_HEIGHT + spacing.md }]}
-          pointerEvents="none"
-        >
-          <MaterialCommunityIcons name="link-variant" size={17} color={palette.accent} />
-          <View style={styles.togetherBannerText}>
-            <Text style={styles.togetherBannerTitle}>Together is on — drag any pieces</Text>
-            <Text style={styles.togetherBannerBody}>
-              They&apos;ll move as one step · Together saves · Cancel discards
-            </Text>
-          </View>
-        </View>
-      )}
-
       {/* Court area spacer between header and dock — its measured rect hosts the lines */}
       <View style={styles.courtArea} pointerEvents="none" onLayout={onCourtAreaLayout} />
 
       {/* Floating bottom dock: edit controls in 2D, playback controls in 3D */}
-      <View style={[styles.dock, { marginBottom: dockBottom }]}>
+      <View
+        style={[
+          styles.dock,
+          { marginBottom: dockBottom },
+          (tutorialStep === 1 || tutorialStep === 2) && styles.liftedChrome,
+        ]}
+      >
         {is3D ? (
           <>
             <IconButton
@@ -792,40 +887,62 @@ export default function BadmintonCourt() {
           </>
         ) : isPlayback ? (
           <>
-            <IconButton icon="source-fork" label="Fork" onPress={handleFork} />
-            <IconButton icon="step-backward" label="Back" onPress={stepBack} disabled={!canUndo} />
-            <IconButton icon="step-forward" label="Next" onPress={stepNext} disabled={!canRedo} />
+            <IconButton icon="source-fork" label="Fork" onPress={handleFork} disabled={inTutorial} />
+            <IconButton
+              icon="step-backward"
+              label="Back"
+              onPress={stepBack}
+              disabled={!canUndo || inTutorial}
+            />
+            <IconButton
+              icon="step-forward"
+              label="Next"
+              onPress={stepNext}
+              disabled={!canRedo || inTutorial}
+            />
             <IconButton
               icon={isPlaying ? 'pause' : 'play'}
               label={isPlaying ? 'Pause' : 'Play'}
               onPress={togglePlay}
               active
+              disabled={inTutorial}
             />
           </>
         ) : (
           <>
-            {isTogether ? (
-              <IconButton
-                icon="close-circle-outline"
-                label="Cancel"
-                color={palette.danger}
-                onPress={cancelTogether}
-              />
-            ) : totalSteps > 1 ? (
+            {totalSteps > 1 ? (
               // Wipe the stack but keep positions — for staging a start formation.
-              <IconButton icon="broom" label="Clear" onPress={clearSteps} />
+              <IconButton icon="broom" label="Clear" onPress={clearSteps} disabled={inTutorial} />
             ) : (
-              <IconButton icon="restart" label="Reset" onPress={resetPositions} />
+              <IconButton icon="restart" label="Reset" onPress={resetPositions} disabled={inTutorial} />
             )}
-            <IconButton icon="undo-variant" label="Undo" onPress={undo} disabled={!canUndo || isTogether} />
-            <IconButton icon="redo-variant" label="Redo" onPress={redo} disabled={!canRedo || isTogether} />
             <IconButton
-              icon="link-variant"
-              label="Together"
-              onPress={toggleTogether}
-              active={isTogether}
-              badge={togetherCount}
+              icon="undo-variant"
+              label="Undo"
+              onPress={undo}
+              disabled={!canUndo || inTutorial}
             />
+            {hasPending ? (
+              // Redo's slot moonlights: moved pieces are a pending step until
+              // Next banks them as one.
+              <View>
+                <IconButton
+                  icon="arrow-right"
+                  label="Next"
+                  onPress={handleBankStep}
+                  active
+                  disabled={!tutorialAllows('next')}
+                />
+                {tutorialStep === 1 && <TutorialRing inset={-6} radius={18} rotate="-2.5deg" />}
+              </View>
+            ) : (
+              <IconButton
+                icon="redo-variant"
+                label="Redo"
+                onPress={redo}
+                disabled={!canRedo || inTutorial}
+              />
+            )}
           </>
         )}
         <IconButton
@@ -833,18 +950,27 @@ export default function BadmintonCourt() {
           label="Trails"
           onPress={togglePlayerTrails}
           active={showPlayerTrails}
+          disabled={inTutorial}
         />
         <IconButton
           icon="badminton"
           label="Shuttle"
           onPress={toggleShuttleTrail}
           active={showShuttleTrail}
+          disabled={inTutorial}
         />
-        <IconButton
-          icon="playlist-play"
-          label="Drills"
-          onPress={() => setDrillHubTab('mine')}
-        />
+        <View>
+          <IconButton
+            icon="playlist-play"
+            label="Drills"
+            onPress={() => {
+              if (tutorialStep === 2) setTutorialStep(3);
+              setDrillHubTab('mine');
+            }}
+            disabled={!tutorialAllows('drills')}
+          />
+          {tutorialStep === 2 && <TutorialRing inset={-7} radius={18} rotate="-2deg" />}
+        </View>
       </View>
 
       {/* Theme try-on: dots + unlock bar over the live court */}
@@ -860,12 +986,29 @@ export default function BadmintonCourt() {
         />
       )}
 
+      {inTutorial && tutorialStep! <= 5 && !show3D && (
+        <CourtTutorial
+          step={tutorialStep!}
+          screenW={screenWidth}
+          headerTop={headerTop}
+          dockTop={area.y + area.height}
+          linesRect={linesRect}
+          p1={{
+            x: playerPositions.team1[0]?.x ?? 0,
+            y: playerPositions.team1[0]?.y ?? 0,
+            size: customizations.P1.size,
+          }}
+          onSkip={finishTutorial}
+        />
+      )}
+
       <SettingsPanel
         isVisible={isMenuVisible}
         onClose={() => {
           setIsMenuVisible(false);
           // Closing the sheet ends every try-before-you-buy preview.
           clearPreviews();
+          if (tutorialStep === 6) finishTutorial();
         }}
         isDoubles={isDoubles}
         onGameModeChange={toggleGameMode}
@@ -877,6 +1020,8 @@ export default function BadmintonCourt() {
           clearPreviews({ keepCourtTheme: true });
           setThemeTryOn(true);
         }}
+        tutorialDone={tutorialStep === 6}
+        onReplayTutorial={replayTutorial}
       />
 
       <ProPaywall
@@ -890,6 +1035,8 @@ export default function BadmintonCourt() {
         isVisible={drillHubTab !== null}
         initialTab={drillHubTab ?? 'mine'}
         onClose={() => setDrillHubTab(null)}
+        tutorialStep={tutorialStep}
+        onSkipTutorial={finishTutorial}
         vault={vault}
         stepSets={stepSets}
         currentStepCount={stepCount}
@@ -981,6 +1128,15 @@ const styles = StyleSheet.create({
   },
   glassPressed: {
     backgroundColor: 'rgba(6, 26, 18, 0.62)',
+  },
+  // Tutorial: pop this chrome above the scrim (z30) so it reads as live.
+  liftedChrome: {
+    zIndex: 40,
+    elevation: 40,
+  },
+  // Tutorial: siblings of the live control fade like the rest of the page.
+  tutorialDimmed: {
+    opacity: 0.35,
   },
   proBadge: {
     position: 'absolute',
@@ -1139,36 +1295,6 @@ const styles = StyleSheet.create({
     ...sora('600'),
     fontSize: 10,
     color: 'rgba(255, 255, 255, 0.8)',
-  },
-  // Amber glass per the Together mockup (opacity bumped: no backdrop blur on RN).
-  togetherBanner: {
-    position: 'absolute',
-    left: spacing.lg,
-    right: spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radii.md,
-    backgroundColor: 'rgba(35, 22, 4, 0.78)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 201, 77, 0.75)',
-    ...shadows.card,
-  },
-  togetherBannerText: {
-    flex: 1,
-    gap: 2,
-  },
-  togetherBannerTitle: {
-    ...sora('600'),
-    fontSize: 12,
-    color: '#FFE4A6',
-  },
-  togetherBannerBody: {
-    ...sora('400'),
-    fontSize: 10.5,
-    color: 'rgba(255, 228, 166, 0.75)',
   },
   dock: {
     marginHorizontal: 14,

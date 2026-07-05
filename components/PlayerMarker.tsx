@@ -6,7 +6,6 @@ import { MascotView, MASCOT_ASPECT } from './mascots';
 import {
   markerContentColor,
   markerRingColor,
-  palette,
   sora,
 } from '../constants/theme';
 
@@ -25,12 +24,12 @@ interface PlayerMarkerProps {
   /** Ring/glyph overrides for shuttle styles; default derives from color. */
   ringColor?: string;
   contentColor?: string;
-  /** Amber ring: this piece is part of the armed Together step. */
-  linked?: boolean;
   /** Duration of the glide between steps (ms); user-tunable in Customize. */
   glideMs?: number;
   /** Playback: the piece ignores touches entirely. */
   locked?: boolean;
+  /** Tutorial: lift this piece above the scrim so it reads as the live target. */
+  elevated?: boolean;
   onPositionChange?: (newPosition: { x: number; y: number }) => void;
   onPositionStart?: (newPosition: { x: number; y: number }) => void;
   onPositionChangeComplete?: () => void;
@@ -48,9 +47,9 @@ export function PlayerMarker({
   label,
   ringColor,
   contentColor,
-  linked = false,
   glideMs = 260,
   locked = false,
+  elevated = false,
   onPositionChange,
   onPositionStart,
   onPositionChangeComplete,
@@ -62,7 +61,7 @@ export function PlayerMarker({
   const translate = React.useRef(new Animated.ValueXY({ x: position.x, y: position.y })).current;
 
   // While the finger is down the marker must track it 1:1; any other position
-  // change (undo/redo/reset/drill load/Together cancel) glides so the eye can
+  // change (undo/redo/reset/drill load/pending discard) glides so the eye can
   // follow where each piece went.
   const { x: targetX, y: targetY } = position;
   useEffect(() => {
@@ -95,13 +94,12 @@ export function PlayerMarker({
           ? styles.mascotBox
           : {
               backgroundColor: color,
-              borderColor: linked ? palette.accent : ringColor ?? markerRingColor(color),
-              borderWidth: linked ? 3 : 2.5,
+              borderColor: ringColor ?? markerRingColor(color),
+              borderWidth: 2.5,
               shadowOpacity: isLifted ? 0.6 : 0.35,
               shadowRadius: isLifted ? 10 : 5,
               elevation: isLifted ? 10 : 4,
             },
-        mascot && linked && styles.mascotLinked,
         {
           width: markerSize,
           height: markerSize,
@@ -111,6 +109,7 @@ export function PlayerMarker({
             { scale: isLifted ? 1.12 : 1 },
           ],
         },
+        elevated && styles.elevated,
       ]}
       onStartShouldSetResponder={() => !locked}
       onMoveShouldSetResponder={() => !locked}
@@ -196,6 +195,10 @@ export function PlayerMarker({
 }
 
 const styles = StyleSheet.create({
+  elevated: {
+    zIndex: 40,
+    elevation: 40,
+  },
   marker: {
     position: 'absolute',
     shadowColor: '#000',
@@ -208,10 +211,6 @@ const styles = StyleSheet.create({
   },
   mascotBox: {
     backgroundColor: 'transparent',
-  },
-  mascotLinked: {
-    borderWidth: 3,
-    borderColor: palette.accent,
   },
   textIcon: {
     ...sora('700'),

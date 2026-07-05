@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Modal, ScrollView, Share, Text, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Portal, TextInput } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -15,6 +16,14 @@ import {
 import { STEP_SET_LIMIT } from '../hooks/useStepSets';
 import { useVaultAccess } from '../hooks/useVaultAccess';
 import { ProPaywall } from './ProPaywall';
+import {
+  AmberWord,
+  Chalk,
+  ChalkArrow,
+  SkipPill,
+  TutorialDots,
+  TutorialRing,
+} from './TutorialOverlay';
 import { palette, radii, shadows, sora, spacing } from '../constants/theme';
 
 export type DrillHubTab = 'mine' | 'vault';
@@ -37,15 +46,21 @@ interface DrillHubPanelProps {
   onLoadDrill: (drill: VaultDrill) => void;
   /** Saves a personal copy into My Drills; false when rejected (free-tier cap). */
   onSaveDrill: (drill: VaultDrill) => Promise<boolean>;
+  /** First-run tour: 3 = Save page, 4 = Play page (chalk renders in-modal). */
+  tutorialStep?: number | null;
+  onSkipTutorial?: () => void;
 }
 
 interface ListActionProps {
   icon: string;
   variant?: 'primary' | 'glass' | 'danger';
   onPress: () => void;
+  label: string;
+  disabled?: boolean;
+  dimmed?: boolean;
 }
 
-function ListAction({ icon, variant = 'glass', onPress }: ListActionProps) {
+function ListAction({ icon, variant = 'glass', onPress, label, disabled, dimmed }: ListActionProps) {
   const color =
     variant === 'primary'
       ? palette.onAccent
@@ -56,10 +71,13 @@ function ListAction({ icon, variant = 'glass', onPress }: ListActionProps) {
     <TouchableOpacity
       onPress={onPress}
       hitSlop={6}
+      disabled={disabled}
+      accessibilityLabel={label}
       style={[
         styles.listAction,
         variant === 'primary' && styles.listActionPrimary,
         variant === 'danger' && styles.listActionDanger,
+        dimmed && styles.tutDimmed,
       ]}
     >
       <MaterialCommunityIcons name={icon as any} size={17} color={color} />
@@ -80,8 +98,16 @@ export function DrillHubPanel({
   onImport,
   onLoadDrill,
   onSaveDrill,
+  tutorialStep = null,
+  onSkipTutorial,
 }: DrillHubPanelProps) {
+  const insets = useSafeAreaInsets();
   const { isSubscribed, manageSubscription } = vault;
+  // Tour pages: everything but the one live control dims and goes inert;
+  // the sheet shrinks to half height so the chalk has court to write on.
+  const tutSave = tutorialStep === 3;
+  const tutPlay = tutorialStep === 4;
+  const tutActive = tutSave || tutPlay;
   const [activeTab, setActiveTab] = useState<DrillHubTab>(initialTab);
   const [activeCategory, setActiveCategory] = useState<VaultCategory | 'All'>('All');
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -202,12 +228,22 @@ export function DrillHubPanel({
 
   return (
     <>
-      <Modal visible={isVisible} animationType="slide" transparent onRequestClose={onClose}>
+      <Modal
+        visible={isVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={tutActive ? () => {} : onClose}
+      >
         <View style={styles.overlay}>
-          <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-          <View style={styles.sheet}>
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={onClose}
+            disabled={tutActive}
+          />
+          <View style={[styles.sheet, tutActive && styles.sheetTutorial]}>
             <View style={styles.grabHandle} />
-            <View style={styles.header}>
+            <View style={[styles.header, tutActive && styles.tutDimmed]}>
               <View>
                 <Text style={styles.headerTitle}>Drills</Text>
                 <Text style={styles.headerSubtitle}>
@@ -219,6 +255,7 @@ export function DrillHubPanel({
               <TouchableOpacity
                 onPress={onClose}
                 hitSlop={8}
+                disabled={tutActive}
                 accessibilityLabel="Close drills"
                 style={styles.closeButton}
               >
@@ -226,6 +263,7 @@ export function DrillHubPanel({
               </TouchableOpacity>
             </View>
 
+            {!tutActive && (
             <View style={styles.tabs}>
               <TouchableOpacity
                 style={[styles.tab, activeTab === 'mine' && styles.tabActive]}
@@ -256,28 +294,40 @@ export function DrillHubPanel({
                 </View>
               </TouchableOpacity>
             </View>
+            )}
 
             {activeTab === 'mine' ? (
               <>
                 <View style={styles.actions}>
+                  <View>
+                    <TouchableOpacity
+                      style={[
+                        styles.primaryAction,
+                        !canSave && styles.actionDisabled,
+                        tutPlay && styles.tutDimmed,
+                      ]}
+                      onPress={() => {
+                        if (!isSubscribed && stepSets.length >= STEP_SET_LIMIT) {
+                          setPaywallVisible(true);
+                          return;
+                        }
+                        setSaveDialogVisible(true);
+                      }}
+                      disabled={!canSave || tutPlay}
+                    >
+                      <MaterialCommunityIcons name="tray-arrow-down" size={18} color={palette.onAccent} />
+                      <Text style={styles.primaryActionText}>Save current steps</Text>
+                    </TouchableOpacity>
+                    {tutSave && <TutorialRing inset={-6} radius={20} rotate="-1deg" />}
+                  </View>
                   <TouchableOpacity
-                    style={[styles.primaryAction, !canSave && styles.actionDisabled]}
-                    onPress={() => {
-                      if (!isSubscribed && stepSets.length >= STEP_SET_LIMIT) {
-                        setPaywallVisible(true);
-                        return;
-                      }
-                      setSaveDialogVisible(true);
-                    }}
-                    disabled={!canSave}
-                  >
-                    <MaterialCommunityIcons name="tray-arrow-down" size={18} color={palette.onAccent} />
-                    <Text style={styles.primaryActionText}>Save current steps</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.secondaryAction, isImporting && styles.actionDisabled]}
+                    style={[
+                      styles.secondaryAction,
+                      isImporting && styles.actionDisabled,
+                      tutActive && styles.tutDimmed,
+                    ]}
                     onPress={handleImportFromClipboard}
-                    disabled={isImporting}
+                    disabled={isImporting || tutActive}
                   >
                     <MaterialCommunityIcons
                       name="clipboard-arrow-down-outline"
@@ -290,7 +340,7 @@ export function DrillHubPanel({
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.listLabel}>
+                <Text style={[styles.listLabel, tutSave && styles.tutDimmed]}>
                   Saved drills
                   {!isSubscribed &&
                     ` · ${Math.min(stepSets.length, STEP_SET_LIMIT)}/${STEP_SET_LIMIT} free`}
@@ -298,13 +348,15 @@ export function DrillHubPanel({
 
                 <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
                   {stepSets.length === 0 ? (
-                    <Text style={styles.emptyText}>
+                    <Text style={[styles.emptyText, tutSave && styles.tutDimmed]}>
                       No saved drills yet — build steps and save them here, or load one from the
                       Drill Vault.
                     </Text>
                   ) : (
-                    stepSets.map((stepSet) => (
-                      <View key={stepSet.id} style={styles.listItem}>
+                    stepSets.map((stepSet, index) => {
+                      const spotlight = tutPlay && index === 0;
+                      return (
+                      <View key={stepSet.id} style={[styles.listItem, tutSave && styles.tutDimmed]}>
                         <View style={styles.listItemInfo}>
                           <Text style={styles.listItemTitle} numberOfLines={1}>
                             {stepSet.name}
@@ -314,26 +366,59 @@ export function DrillHubPanel({
                           </Text>
                         </View>
                         <View style={styles.itemActions}>
+                          <View>
+                            <ListAction
+                              icon="play"
+                              variant="primary"
+                              label="Play drill"
+                              disabled={tutActive && !spotlight}
+                              onPress={() => {
+                                onLoadStepSet(stepSet);
+                                onClose();
+                              }}
+                            />
+                            {spotlight && <TutorialRing inset={-6} />}
+                          </View>
                           <ListAction
-                            icon="play"
-                            variant="primary"
-                            onPress={() => {
-                              onLoadStepSet(stepSet);
-                              onClose();
-                            }}
+                            icon="share-variant"
+                            label="Share drill"
+                            disabled={tutActive}
+                            onPress={() => handleShare(stepSet)}
                           />
-                          <ListAction icon="share-variant" onPress={() => handleShare(stepSet)} />
                           <ListAction
                             icon="trash-can-outline"
                             variant="danger"
+                            label="Delete drill"
+                            disabled={tutActive}
+                            dimmed={tutPlay}
                             onPress={() => handleDelete(stepSet)}
                           />
                         </View>
                       </View>
-                    ))
+                      );
+                    })
                   )}
 
-                  <TouchableOpacity style={styles.vaultUpsell} onPress={() => setActiveTab('vault')}>
+                  {tutPlay && (
+                    <View style={styles.tutShareNote}>
+                      <Chalk size={18} weight="600" style={{ width: 210, transform: [{ rotate: '1.5deg' }] }}>
+                        and this one beams it to your <AmberWord>squad</AmberWord>
+                      </Chalk>
+                      <ChalkArrow
+                        box={{ left: 224, top: -30, width: 78, height: 48 }}
+                        viewBox="0 0 78 48"
+                        d="M10 40 C 32 36, 46 26, 60 10"
+                        head="M60 10 l-12 0.5 M60 10 l-3 11.5"
+                        strokeWidth={2.5}
+                      />
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.vaultUpsell, tutActive && styles.tutDimmed]}
+                    disabled={tutActive}
+                    onPress={() => setActiveTab('vault')}
+                  >
                     <MaterialCommunityIcons name="treasure-chest" size={18} color={palette.accent} />
                     <View style={styles.bannerInfo}>
                       <Text style={styles.vaultUpsellTitle}>
@@ -476,6 +561,50 @@ export function DrillHubPanel({
               </>
             )}
           </View>
+
+          {tutActive && (
+            <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+              <View pointerEvents="none" style={[styles.tutDotsHost, { top: insets.top + 66 }]}>
+                <TutorialDots current={tutorialStep!} />
+              </View>
+              {onSkipTutorial && (
+                <View style={[styles.tutSkipHost, { top: insets.top + 66 }]}>
+                  <SkipPill onPress={onSkipTutorial} />
+                </View>
+              )}
+              {tutSave ? (
+                <>
+                  <View pointerEvents="none" style={styles.tutChalkSave}>
+                    <Chalk size={27} style={{ textAlign: 'center' }}>save the masterpiece</Chalk>
+                    <Chalk size={19} weight="600" dim style={{ textAlign: 'center' }}>
+                      name it something better than &apos;drill 7&apos;
+                    </Chalk>
+                  </View>
+                  <ChalkArrow
+                    box={{ left: '42%', top: '31%', width: 70, height: 152 }}
+                    viewBox="0 0 70 152"
+                    d="M36 8 C 10 44, 58 88, 32 140"
+                    head="M32 140 l-3 -13 M32 140 l12 -5"
+                  />
+                </>
+              ) : (
+                <>
+                  <View pointerEvents="none" style={styles.tutChalkPlay}>
+                    <Chalk size={26} style={{ textAlign: 'center' }}>run it back anytime</Chalk>
+                    <Chalk size={22} style={{ textAlign: 'center', marginTop: 3 }}>
+                      tap <AmberWord>play</AmberWord>
+                    </Chalk>
+                  </View>
+                  <ChalkArrow
+                    box={{ left: '46%', top: '33%', width: 110, height: 260 }}
+                    viewBox="0 0 110 260"
+                    d="M28 10 C 74 70, 10 150, 68 236"
+                    head="M68 236 l-11 -7 M68 236 l-1.5 -13.5"
+                  />
+                </>
+              )}
+            </View>
+          )}
         </View>
       </Modal>
 
@@ -681,6 +810,44 @@ const styles = StyleSheet.create({
   },
   actionDisabled: {
     opacity: 0.45,
+  },
+  // ── First-run tour ──
+  // Half-height sheet so the chalk coach-marks have court to write on.
+  sheetTutorial: {
+    height: '54%',
+  },
+  tutDimmed: {
+    opacity: 0.35,
+  },
+  tutDotsHost: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  tutSkipHost: {
+    position: 'absolute',
+    right: 16,
+  },
+  tutChalkSave: {
+    position: 'absolute',
+    top: '22%',
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+    transform: [{ rotate: '-1.5deg' }],
+  },
+  tutChalkPlay: {
+    position: 'absolute',
+    top: '24%',
+    left: 40,
+    right: 40,
+    alignItems: 'center',
+    transform: [{ rotate: '-1deg' }],
+  },
+  tutShareNote: {
+    marginTop: spacing.lg,
+    marginLeft: 4,
   },
   listLabel: {
     ...sora('700'),
